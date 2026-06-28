@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 import sys
+import os
 import json
 import re
+
+# Prepend standard system paths to process environment
+os.environ["PATH"] = "/usr/bin:/bin:/usr/local/bin:" + os.environ.get("PATH", "")
 
 def main():
     if len(sys.argv) < 2:
@@ -67,8 +71,8 @@ def main():
         print(json.dumps({"success": False, "error": error_msg, "topics": []}, ensure_ascii=False))
         return
 
-    # Extract topics using robust JSON regex pattern
-    pattern = r'\\*\"url\\*\":\\*\"(https?://[^\"/]+/topic/(?:[^\"\\]|\\.)*?)\\*\",\\*\"name\\*\":\\*\"((?:[^\"\\]|\\.)*?)\\*\"'
+    # Extract topics using robust JSON regex pattern supporting relative and absolute URLs
+    pattern = r'\\*\"url\\*\":\\*\"((?:https?://[^\"/\\ ]+)?/topic/(?:[^\"\\]|\\.)*?)\\*\",\\*\"name\\*\":\\*\"((?:[^\"\\]|\\.)*?)\\*\"'
     matches = re.findall(pattern, html)
 
     topics = []

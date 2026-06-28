@@ -11,12 +11,13 @@ jQuery(document).ready(function($) {
     let linkTemplate = '';
     let enabledTypes = [];
     let extractTopics = 0;
+    let importComments = 0;
     
     let currentIndex = 0;
     let importedCount = 0;
     let skippedCount = 0;
     let imagesCount = 0;
-    let isAborted = false;
+    let isPaused = false;
     let isImporting = false;
     
     // DOM Elements
@@ -231,6 +232,7 @@ jQuery(document).ready(function($) {
         importImages = $('#quora-import-images').is(':checked') ? 1 : 0;
         setFeatured = $('#quora-set-featured').is(':checked') ? 1 : 0;
         extractTopics = $('#quora-extract-topics').is(':checked') ? 1 : 0;
+        importComments = $('#quora-import-comments').is(':checked') ? 1 : 0;
         
         enabledTypes = [];
         $('input[name="enabled_types[]"]:checked').each(function() {
@@ -247,7 +249,7 @@ jQuery(document).ready(function($) {
         importedCount = 0;
         skippedCount = 0;
         imagesCount = 0;
-        isAborted = false;
+        isPaused = false;
         isImporting = true;
         
         // Reset elements in case of re-import
@@ -256,7 +258,7 @@ jQuery(document).ready(function($) {
         $('#quora-progress-finished-section').hide();
         $('#quora-progress-actions').show();
         $('#quora-finished-actions').hide();
-        $('#quora-abort-import').prop('disabled', false).text(quoraImporter.strings.stop_import);
+        $('#quora-pause-import').prop('disabled', false).text(quoraImporter.strings.pause);
         $('#quora-log-status-indicator').addClass('live pulsing').removeClass('finished').text(quoraImporter.strings.live);
         
         $console.empty();
@@ -272,9 +274,7 @@ jQuery(document).ready(function($) {
     });
     
     function importNextItem() {
-        if (isAborted) {
-            addLog(quoraImporter.strings.import_aborted, 'warning');
-            cleanupSession(true);
+        if (isPaused) {
             return;
         }
         
@@ -302,6 +302,7 @@ jQuery(document).ready(function($) {
                 import_images: importImages,
                 set_featured: setFeatured,
                 extract_topics: extractTopics,
+                import_comments: importComments,
                 enabled_types: enabledTypes
             },
             success: function(response) {
@@ -352,12 +353,23 @@ jQuery(document).ready(function($) {
         });
     }
     
-    // Abort button
-    $('#quora-abort-import').on('click', function(e) {
+    // Pause / Continue button
+    $('#quora-pause-import').on('click', function(e) {
         e.preventDefault();
-        if (confirm(quoraImporter.strings.abort_confirm)) {
-            isAborted = true;
-            $(this).prop('disabled', true).text(quoraImporter.strings.aborting);
+        if (isPaused) {
+            // Resume
+            isPaused = false;
+            $(this).text(quoraImporter.strings.pause);
+            addLog(quoraImporter.strings.import_resumed, 'info');
+            $('#quora-finished-actions').hide();
+            // Resume loop
+            importNextItem();
+        } else {
+            // Pause
+            isPaused = true;
+            $(this).text(quoraImporter.strings.resume);
+            addLog(quoraImporter.strings.import_paused, 'warning');
+            $('#quora-finished-actions').show();
         }
     });
     

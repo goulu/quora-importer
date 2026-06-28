@@ -80,6 +80,10 @@ class Quora_Importer {
                     'live'                => __( 'Live', 'quora-importer' ),
                     'finished'            => __( 'Finished', 'quora-importer' ),
                     'stop_import'         => __( 'Stop Import', 'quora-importer' ),
+                    'pause'               => __( 'Pause', 'quora-importer' ),
+                    'resume'              => __( 'Continue', 'quora-importer' ),
+                    'import_paused'       => __( 'Import paused.', 'quora-importer' ),
+                    'import_resumed'      => __( 'Import resumed.', 'quora-importer' ),
                 )
             ) );
         }
@@ -242,6 +246,17 @@ class Quora_Importer {
                     </div>
                 </div>
                 
+                <div class="quora-form-section">
+                    <h4><?php esc_html_e( '5. Comment Settings', 'quora-importer' ); ?></h4>
+                    <div class="quora-form-row checkbox-row">
+                        <input type="checkbox" name="import_comments" id="quora-import-comments" value="1" />
+                        <label for="quora-import-comments">
+                            <strong><?php esc_html_e( 'Import comments from Quora', 'quora-importer' ); ?></strong>
+                            <span class="help-desc"><?php esc_html_e( 'Launches Vivaldi to fetch and import nested comment threads and metadata from the Quora answer page.', 'quora-importer' ); ?></span>
+                        </label>
+                    </div>
+                </div>
+                
                 <div class="quora-form-actions">
                     <button type="button" class="button button-secondary button-large" id="quora-cancel-to-upload"><?php esc_html_e( 'Cancel', 'quora-importer' ); ?></button>
                     <button type="submit" class="button button-primary button-large" id="quora-submit-import"><?php esc_html_e( 'Start Import', 'quora-importer' ); ?></button>
@@ -298,7 +313,7 @@ class Quora_Importer {
             </div>
             
             <div class="quora-form-actions" id="quora-progress-actions">
-                <button type="button" class="button button-link-delete" id="quora-abort-import"><?php esc_html_e( 'Stop Import', 'quora-importer' ); ?></button>
+                <button type="button" class="button button-secondary" id="quora-pause-import"><?php esc_html_e( 'Pause', 'quora-importer' ); ?></button>
             </div>
             
             <div class="quora-form-actions" id="quora-finished-actions" style="display: none; justify-content: center; gap: 15px; margin-top: 20px;">
@@ -449,6 +464,7 @@ class Quora_Importer {
         $import_images = ! empty( $_POST['import_images'] );
         $set_featured = ! empty( $_POST['set_featured'] );
         $extract_topics = ! empty( $_POST['extract_topics'] );
+        $import_comments = ! empty( $_POST['import_comments'] );
         $link_position = isset( $_POST['link_position'] ) ? sanitize_text_field( wp_unslash( $_POST['link_position'] ) ) : 'none';
         $link_template = isset( $_POST['link_template'] ) ? wp_kses_post( wp_unslash( $_POST['link_template'] ) ) : '';
         
@@ -494,6 +510,33 @@ class Quora_Importer {
         // Prepare title
         $title = $this->get_post_title( $post, $type );
         $title = preg_replace( '/\[\/?math\]/i', '$', $title );
+
+        // Date parsing
+        $raw_date = ! empty( $post['Creation time'] ) ? $post['Creation time'] : '';
+        $timestamp = $this->parse_quora_date( $raw_date );
+        
+        $post_date = wp_date( 'Y-m-d H:i:s', $timestamp );
+        $post_date_gmt = gmdate( 'Y-m-d H:i:s', $timestamp );
+        
+        // Clean HTML content to calculate length
+        $content = ! empty( $post['Content'] ) ? $post['Content'] : '';
+        $content = preg_replace( '/\[\/?math\]/i', '$', $content );
+        $content = $this->clean_html_newlines( $content );
+        $content = $this->process_html_links( $content );
+        
+        // Set post status based on condition
+        $status = 'draft'; // Default to draft
+        $is_original_draft = ( strpos( strtolower( $type ), 'brouillon' ) !== false || strpos( strtolower( $type ), 'draft' ) !== false );
+        $is_published = false;
+        
+        if ( ! $is_original_draft ) {
+            $plain_text = wp_strip_all_tags( $content );
+            $char_count = mb_strlen( trim( $plain_text ), 'UTF-8' );
+            if ( $char_count > $min_chars_publish ) {
+                $status = 'publish';
+                $is_published = true;
+            }
+        }
         
         // Check if post already exists (avoid duplicates) using WP_Query
         $existing_query = new WP_Query( array(
@@ -509,7 +552,7 @@ class Quora_Importer {
         $existing = $existing_query->have_posts() ? $existing_query->posts[0] : null;
         
         if ( $existing ) {
-            if ( $extract_topics ) {
+            if ( $is_published && $extract_topics ) {
                 $quora_url = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id );
                 if ( ! empty( $quora_url ) ) {
                     $extracted_topics = $this->extract_quora_topics( $quora_url );
@@ -553,31 +596,6 @@ class Quora_Importer {
             ) );
         }
         
-        // Date parsing
-        $raw_date = ! empty( $post['Creation time'] ) ? $post['Creation time'] : '';
-        $timestamp = $this->parse_quora_date( $raw_date );
-        
-        $post_date = wp_date( 'Y-m-d H:i:s', $timestamp );
-        $post_date_gmt = gmdate( 'Y-m-d H:i:s', $timestamp );
-        
-        // Clean URL redirects in HTML
-        $content = ! empty( $post['Content'] ) ? $post['Content'] : '';
-        $content = preg_replace( '/\[\/?math\]/i', '$', $content );
-        $content = $this->clean_html_newlines( $content );
-        $content = $this->process_html_links( $content );
-        
-        // Set post status based on condition
-        $status = 'draft'; // Default to draft
-        $is_original_draft = ( strpos( strtolower( $type ), 'brouillon' ) !== false || strpos( strtolower( $type ), 'draft' ) !== false );
-        
-        if ( ! $is_original_draft ) {
-            $plain_text = wp_strip_all_tags( $content );
-            $char_count = mb_strlen( trim( $plain_text ), 'UTF-8' );
-            if ( $char_count > $min_chars_publish ) {
-                $status = 'publish';
-            }
-        }
-        
         // Sideload images if requested
         $images_imported = 0;
         $featured_image_id = 0;
@@ -589,18 +607,18 @@ class Quora_Importer {
             $featured_image_id = $sideload_result['featured_id'];
         }
         
-        // Generate Quora URL if link is requested or topics extraction is enabled
+        // Generate Quora URL if link is requested or topics extraction is enabled (topics only if published)
         $quora_url = '';
-        if ( $extract_topics || ( $link_position !== 'none' && ! empty( $link_template ) ) ) {
+        if ( ( $is_published && $extract_topics ) || ( $link_position !== 'none' && ! empty( $link_template ) ) ) {
             $quora_url = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id );
         }
-
-        // Extract Quora topics/labels if requested
+ 
+        // Extract Quora topics/labels if requested (only for published posts)
         $extracted_topics = array();
-        if ( $extract_topics && ! empty( $quora_url ) ) {
+        if ( $is_published && $extract_topics && ! empty( $quora_url ) ) {
             $extracted_topics = $this->extract_quora_topics( $quora_url );
         }
-
+ 
         // Add link to Quora if requested
         if ( $link_position !== 'none' && ! empty( $link_template ) && ! empty( $quora_url ) ) {
             $link_html = str_replace( '$link$', $quora_url, $link_template );
@@ -684,19 +702,68 @@ class Quora_Importer {
             }
         }
         
-        $log_type = 'info';
-        if ( ! empty( $extracted_topics ) ) {
-            // translators: 1: post ID, 2: number of images imported, 3: number of topics extracted.
-            $msg = sprintf( __( 'Post imported successfully (ID: %1$d, images: %2$d, topics: %3$d).', 'quora-importer' ), $post_id, $images_imported, count( $extracted_topics ) );
-        } else {
-            if ( $extract_topics && ! empty( $this->last_topic_error ) ) {
-                // translators: 1: post ID, 2: number of images imported, 3: topic error details.
-                $msg = sprintf( __( 'Post imported successfully (ID: %1$d, images: %2$d). Warning: Topic extraction failed (%3$s).', 'quora-importer' ), $post_id, $images_imported, $this->last_topic_error );
-                $log_type = 'warning';
-            } else {
-                // translators: 1: post ID, 2: number of images imported.
-                $msg = sprintf( __( 'Post imported successfully (ID: %1$d, images: %2$d).', 'quora-importer' ), $post_id, $images_imported );
+        // Import comments if requested (only for published posts)
+        $comments_imported = 0;
+        $comments_warning = '';
+        if ( $is_published && $import_comments ) {
+            $title_for_url = '';
+            if ( ! empty( $post['Question'] ) ) {
+                $title_for_url = $post['Question'];
+            } elseif ( ! empty( $post['Title'] ) ) {
+                $title_for_url = $post['Title'];
             }
+            if ( empty( $title_for_url ) && ! empty( $post['Content'] ) ) {
+                $title_for_url = $this->get_post_title( $post, $post['type'] );
+            }
+            
+            $has_apostrophes = ( false !== strpos( $title_for_url, "'" ) || false !== strpos( $title_for_url, "’" ) );
+            if ( $has_apostrophes ) {
+                $url_a = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id, true );
+                $url_b = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id, false );
+                $quora_urls = array( $url_a, $url_b );
+            } else {
+                if ( empty( $quora_url ) ) {
+                    $quora_url = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id, false );
+                }
+                $quora_urls = array( $quora_url );
+            }
+            
+            if ( ! empty( $quora_urls ) ) {
+                $comments_res = $this->import_quora_comments( $post_id, $quora_urls, $post_date );
+                if ( $comments_res['success'] ) {
+                    $comments_imported = $comments_res['count'];
+                } else {
+                    $comments_warning = $comments_res['error'];
+                }
+            }
+        }
+
+        $log_type = 'info';
+        $warnings = array();
+        if ( $extract_topics && ! empty( $this->last_topic_error ) ) {
+            $warnings[] = sprintf( __( 'Topic extraction failed (%s)', 'quora-importer' ), $this->last_topic_error );
+        }
+        if ( ! empty( $comments_warning ) ) {
+            $warnings[] = sprintf( __( 'Comment import failed (%s)', 'quora-importer' ), $comments_warning );
+        }
+        
+        $msg_parts = array();
+        $msg_parts[] = sprintf( __( 'Post imported successfully (ID: %d)', 'quora-importer' ), $post_id );
+        if ( $images_imported > 0 ) {
+            $msg_parts[] = sprintf( _n( '%d image', '%d images', $images_imported, 'quora-importer' ), $images_imported );
+        }
+        if ( ! empty( $extracted_topics ) ) {
+            $msg_parts[] = sprintf( _n( '%d topic', '%d topics', count( $extracted_topics ), 'quora-importer' ), count( $extracted_topics ) );
+        }
+        if ( $comments_imported > 0 ) {
+            $msg_parts[] = sprintf( _n( '%d comment', '%d comments', $comments_imported, 'quora-importer' ), $comments_imported );
+        }
+        
+        $msg = implode( ', ', $msg_parts ) . '.';
+        
+        if ( ! empty( $warnings ) ) {
+            $msg .= ' Warning: ' . implode( '; ', $warnings ) . '.';
+            $log_type = 'warning';
         }
 
         wp_send_json_success( array(
@@ -1270,7 +1337,7 @@ class Quora_Importer {
     /**
      * Helper to generate the original Quora URL of a post
      */
-    private function generate_quora_url( $post, $extracted_dir, $author_id = 0 ) {
+    private function generate_quora_url( $post, $extracted_dir, $author_id = 0, $replace_apostrophes = false ) {
         // First, check if there is a direct URL already parsed from the HTML export
         foreach ( array( 'Answer', 'Question', 'Link', 'url' ) as $key ) {
             if ( ! empty( $post[$key] ) ) {
@@ -1331,8 +1398,35 @@ class Quora_Importer {
             $title = $this->get_post_title( $post, $type );
         }
         
-        $title_slug = $this->quora_slugify( $title );
+        $has_apostrophes = ( false !== strpos( $title, "'" ) || false !== strpos( $title, "’" ) );
         
+        if ( $has_apostrophes ) {
+            $title_slug = $this->quora_slugify( $title, $replace_apostrophes );
+            return $this->build_quora_url_with_slug( $post, $type, $title_slug, $profile_slug, $domain, $is_answer );
+        } else {
+            $title_slug = $this->quora_slugify( $title, false );
+            return $this->build_quora_url_with_slug( $post, $type, $title_slug, $profile_slug, $domain, $is_answer );
+        }
+    }
+
+    /**
+     * Decode a JSON string from a shell output containing possible prepended/appended warnings.
+     */
+    private function decode_shell_json( $output_array ) {
+        $output_str = implode( '', $output_array );
+        $start_pos = strpos( $output_str, '{' );
+        $end_pos = strrpos( $output_str, '}' );
+        if ( false !== $start_pos && false !== $end_pos && $end_pos > $start_pos ) {
+            $json_str = substr( $output_str, $start_pos, $end_pos - $start_pos + 1 );
+            return json_decode( $json_str, true );
+        }
+        return json_decode( $output_str, true );
+    }
+
+    /**
+     * Build the actual Quora URL structure using the provided slug
+     */
+    private function build_quora_url_with_slug( $post, $type, $title_slug, $profile_slug, $domain, $is_answer ) {
         if ( $is_answer && ! empty( $profile_slug ) && ! empty( $title_slug ) ) {
             return "https://{$domain}/{$title_slug}/answer/{$profile_slug}";
         }
@@ -1357,7 +1451,7 @@ class Quora_Importer {
     /**
      * Reconstruct a Quora-compatible slug that preserves case and accents.
      */
-    private function quora_slugify( $title ) {
+    private function quora_slugify( $title, $replace_apostrophes = false ) {
         if ( empty( $title ) ) {
             return '';
         }
@@ -1365,20 +1459,41 @@ class Quora_Importer {
         // Strip [math] and [/math] tags if present
         $title = preg_replace( '/\[\/?math\]/i', '', $title );
 
-        // Replace slashes and underscores with spaces to prevent word merging
-        $title = str_replace( array( '/', '_' ), ' ', $title );
+        if ( $replace_apostrophes ) {
+            // Option A: replace apostrophes with spaces (which become hyphens)
+            $title = str_replace( array( "'", '’' ), ' ', $title );
+        } else {
+            // Option B: delete all apostrophes
+            $title = str_replace( array( "'", '’' ), '', $title );
+        }
+
+        // Replace slashes, underscores, carets, parentheses, brackets, and braces with spaces to prevent word merging
+        $title = str_replace( array( '/', '_', '^', '(', ')', '[', ']', '{', '}' ), ' ', $title );
+
+        // Normalize capital accented characters to their unaccented equivalents
+        $accented_capitals = array(
+            'À' => 'A', 'Á' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A', 'Å' => 'A', 'Æ' => 'AE',
+            'Ç' => 'C',
+            'È' => 'E', 'É' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+            'Ì' => 'I', 'Í' => 'I', 'Î' => 'I', 'Ï' => 'I',
+            'Ñ' => 'N',
+            'Ò' => 'O', 'Ó' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O', 'Œ' => 'OE',
+            'Ù' => 'U', 'Ú' => 'U', 'Û' => 'U', 'Ü' => 'U',
+            'Ý' => 'Y', 'Ÿ' => 'Y'
+        );
+        $title = str_replace( array_keys( $accented_capitals ), array_values( $accented_capitals ), $title );
         
-        // Strip everything except letters, numbers, spaces, and hyphens (preserving accents and case)
-        $slug = preg_replace( '/[^\p{L}\p{N}\s\-]/u', '', $title );
+        // Strip everything except letters, numbers, spaces, hyphens, and plus signs (preserving accents and case)
+        $slug = preg_replace( '/[^\p{L}\p{N}\s\-\+]/u', '', $title );
         
         // Replace spaces/tabs and consecutive hyphens with a single hyphen
         $slug = preg_replace( '/[\s\-]+/u', '-', $slug );
         $slug = trim( $slug, '-' );
         
-        // Truncate slug to 200 UTF-8 characters to match Quora answer URLs
-        if ( mb_strlen( $slug, 'UTF-8' ) > 200 ) {
-            $truncated = mb_substr( $slug, 0, 200, 'UTF-8' );
-            $next_char = mb_substr( $slug, 200, 1, 'UTF-8' );
+        // Truncate slug to 190 UTF-8 characters to match Quora answer URLs
+        if ( mb_strlen( $slug, 'UTF-8' ) > 190 ) {
+            $truncated = mb_substr( $slug, 0, 190, 'UTF-8' );
+            $next_char = mb_substr( $slug, 190, 1, 'UTF-8' );
             if ( $next_char === '-' || $next_char === '' ) {
                 $slug = $truncated;
             } else {
@@ -1391,10 +1506,10 @@ class Quora_Importer {
             }
         }
 
-        // Enforce URL-encoded length limit of 215 characters
+        // Enforce URL-encoded length limit of 255 characters
         $encoded = rawurlencode( $slug );
-        if ( strlen( $encoded ) > 215 ) {
-            while ( strlen( rawurlencode( $slug ) ) > 215 && mb_strlen( $slug, 'UTF-8' ) > 0 ) {
+        if ( strlen( $encoded ) > 255 ) {
+            while ( strlen( rawurlencode( $slug ) ) > 255 && mb_strlen( $slug, 'UTF-8' ) > 0 ) {
                 $slug = mb_substr( $slug, 0, -1, 'UTF-8' );
             }
             $last_hyphen = mb_strrpos( $slug, '-', 0, 'UTF-8' );
@@ -1403,8 +1518,8 @@ class Quora_Importer {
             }
         }
         
-        // URL-encode all accented and special characters while preserving hyphens
-        return rawurlencode( $slug );
+        // URL-encode all accented and special characters while preserving hyphens and plus signs
+        return str_replace( '%2B', '+', rawurlencode( $slug ) );
     }
 
     /**
@@ -1579,7 +1694,7 @@ class Quora_Importer {
             $retval = null;
             exec( $cmd, $output, $retval );
             if ( 0 === $retval && ! empty( $output ) ) {
-                $response_data = json_decode( implode( '', $output ), true );
+                $response_data = $this->decode_shell_json( $output );
                 if ( is_array( $response_data ) && isset( $response_data['success'] ) ) {
                     if ( $response_data['success'] ) {
                         return $response_data['topics'];
@@ -1588,7 +1703,7 @@ class Quora_Importer {
                         return array();
                     }
                 } else {
-                    $topics = json_decode( implode( '', $output ), true );
+                    $topics = $this->decode_shell_json( $output );
                     if ( is_array( $topics ) && ! empty( $topics ) ) {
                         return $topics;
                     }
@@ -1668,6 +1783,184 @@ class Quora_Importer {
         }
 
         return $topics;
+    }
+
+    /**
+     * Scrape and import comments for a specific post
+     */
+    private function import_quora_comments( $post_id, $quora_url, $post_date ) {
+        $python_script = plugin_dir_path( __FILE__ ) . 'scrape_comments.py';
+        if ( ! file_exists( $python_script ) ) {
+            return array( 'success' => false, 'error' => __( 'Comments scraper script not found.', 'quora-importer' ) );
+        }
+        
+        $python_executable = 'python3';
+        $possible_paths = array(
+            '/usr/bin/python3',
+            '/usr/local/bin/python3',
+            '/bin/python3',
+            '/usr/bin/python',
+        );
+        foreach ( $possible_paths as $path ) {
+            if ( @is_executable( $path ) ) {
+                $python_executable = $path;
+                break;
+            }
+        }
+        
+        $url_args = '';
+        if ( is_array( $quora_url ) ) {
+            foreach ( $quora_url as $u ) {
+                $url_args .= ' ' . escapeshellarg( $u );
+            }
+        } else {
+            $url_args = ' ' . escapeshellarg( $quora_url );
+        }
+        
+        $cmd = escapeshellcmd( $python_executable ) . ' ' . escapeshellarg( $python_script ) . $url_args;
+        $output = array();
+        $retval = null;
+        exec( $cmd, $output, $retval );
+        
+        if ( 0 !== $retval || empty( $output ) ) {
+            return array( 'success' => false, 'error' => __( 'Failed to execute comments scraper.', 'quora-importer' ) );
+        }
+        
+        $response_data = $this->decode_shell_json( $output );
+        if ( ! is_array( $response_data ) || ! isset( $response_data['success'] ) ) {
+            return array( 'success' => false, 'error' => __( 'Invalid scraper response format.', 'quora-importer' ) );
+        }
+        
+        if ( ! $response_data['success'] ) {
+            return array( 'success' => false, 'error' => $response_data['error'] );
+        }
+        
+        if ( ! empty( $response_data['resolved_url'] ) ) {
+            update_post_meta( $post_id, '_quora_url', $response_data['resolved_url'] );
+        }
+        
+        $comments = isset( $response_data['comments'] ) ? $response_data['comments'] : array();
+        if ( empty( $comments ) ) {
+            return array( 'success' => true, 'count' => 0 );
+        }
+        
+        $count = $this->import_quora_comments_to_post( $post_id, $comments, $post_date );
+        return array( 'success' => true, 'count' => $count );
+    }
+
+    /**
+     * Recursive comment importer supporting hierarchy mapping
+     */
+    private function import_quora_comments_to_post( $post_id, $comments, $post_date ) {
+        $id_map = array();
+        $imported_comments_count = 0;
+        
+        foreach ( $comments as $c ) {
+            $quora_id = isset( $c['id'] ) ? $c['id'] : '';
+            $author = isset( $c['author'] ) ? $c['author'] : 'Anonyme';
+            $profile_url = isset( $c['profile_url'] ) ? $c['profile_url'] : '';
+            $text = isset( $c['text'] ) ? $c['text'] : '';
+            $date_text = isset( $c['date'] ) ? $c['date'] : '';
+            $parent_quora_id = isset( $c['parent_id'] ) ? $c['parent_id'] : '';
+            
+            $comment_parent_wp_id = 0;
+            if ( ! empty( $parent_quora_id ) && isset( $id_map[$parent_quora_id] ) ) {
+                $comment_parent_wp_id = $id_map[$parent_quora_id];
+            }
+            
+            $parsed_date = $this->parse_relative_date( $date_text, $post_date );
+            $parsed_date_gmt = get_gmt_from_date( $parsed_date );
+            
+            $commentdata = array(
+               'comment_post_ID'      => $post_id,
+               'comment_author'       => $author,
+               'comment_author_url'   => $profile_url,
+               'comment_content'      => $text,
+               'comment_parent'       => $comment_parent_wp_id,
+               'comment_type'         => 'comment',
+               'comment_date'         => $parsed_date,
+               'comment_date_gmt'     => $parsed_date_gmt,
+               'comment_approved'     => 1,
+            );
+            
+            $wp_comment_id = wp_insert_comment( $commentdata );
+            if ( $wp_comment_id ) {
+                $id_map[$quora_id] = $wp_comment_id;
+                $imported_comments_count++;
+            }
+        }
+        return $imported_comments_count;
+    }
+
+    /**
+     * Parse relative or absolute date from Quora and return standard MySQL format
+     */
+    private function parse_relative_date( $date_str, $post_date_str ) {
+        $now = time();
+        $post_time = strtotime( $post_date_str );
+        if ( ! $post_time ) {
+            $post_time = $now;
+        }
+
+        $date_str = trim( $date_str );
+        if ( empty( $date_str ) ) {
+            return date( 'Y-m-d H:i:s', $post_time + 86400 );
+        }
+
+        $french_months = array(
+            'janvier'   => 'January',
+            'février'   => 'February',
+            'mars'      => 'March',
+            'avril'     => 'April',
+            'mai'       => 'May',
+            'juin'      => 'June',
+            'juillet'   => 'July',
+            'août'      => 'August',
+            'septembre' => 'September',
+            'octobre'   => 'October',
+            'novembre'  => 'November',
+            'décembre'  => 'December'
+        );
+
+        $normalized_date = str_replace( array_keys( $french_months ), array_values( $french_months ), strtolower( $date_str ) );
+        $parsed_time = strtotime( $normalized_date );
+        if ( $parsed_time !== false && $parsed_time > 0 ) {
+            return date( 'Y-m-d H:i:s', $parsed_time );
+        }
+
+        if ( preg_match( '/^(\d+)\s*(ans?|y|yrs?)/iu', $date_str, $matches ) ) {
+            $val = (int) $matches[1];
+            $computed = strtotime( "-{$val} years", $now );
+        } elseif ( preg_match( '/^(\d+)\s*(mois|mo|mos?)/iu', $date_str, $matches ) ) {
+            $val = (int) $matches[1];
+            $computed = strtotime( "-{$val} months", $now );
+        } elseif ( preg_match( '/^(\d+)\s*(sem\.?|w|weeks?)/iu', $date_str, $matches ) ) {
+            $val = (int) $matches[1];
+            $computed = strtotime( "-{$val} weeks", $now );
+        } elseif ( preg_match( '/^(\d+)\s*(j|d|days?)/iu', $date_str, $matches ) ) {
+            $val = (int) $matches[1];
+            $computed = strtotime( "-{$val} days", $now );
+        } elseif ( preg_match( '/^(\d+)\s*(h|hours?)/iu', $date_str, $matches ) ) {
+            $val = (int) $matches[1];
+            $computed = strtotime( "-{$val} hours", $now );
+        } elseif ( preg_match( '/^(\d+)\s*(min|m|minutes?)/iu', $date_str, $matches ) ) {
+            $val = (int) $matches[1];
+            $computed = strtotime( "-{$val} minutes", $now );
+        } elseif ( preg_match( '/^(\d+)\s*(s|seconds?)/iu', $date_str, $matches ) ) {
+            $val = (int) $matches[1];
+            $computed = strtotime( "-{$val} seconds", $now );
+        } else {
+            $computed = false;
+        }
+
+        if ( $computed !== false ) {
+            if ( $computed < $post_time ) {
+                $computed = $post_time + 86400;
+            }
+            return date( 'Y-m-d H:i:s', $computed );
+        }
+
+        return date( 'Y-m-d H:i:s', $post_time + 86400 );
     }
 }
 
