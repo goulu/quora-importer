@@ -137,21 +137,42 @@ class Quora_Importer {
                     <h4><?php _e( '1. Paramètres des articles', 'quora-importer' ); ?></h4>
                     <div class="quora-form-row">
                         <label for="quora-post-author"><?php _e( 'Auteur des articles importés :', 'quora-importer' ); ?></label>
-                        <?php 
-                        wp_dropdown_users( array(
-                            'name' => 'author_id',
-                            'id' => 'quora-post-author',
-                            'selected' => get_current_user_id()
-                        ) ); 
-                        ?>
+                        <select name="author_id" id="quora-post-author">
+                            <?php 
+                            $users = get_users();
+                            $current_user_id = get_current_user_id();
+                            foreach ( $users as $user ) {
+                                $nickname = get_user_meta( $user->ID, 'nickname', true );
+                                $display_text = ! empty( $nickname ) ? $nickname : $user->display_name;
+                                ?>
+                                <option value="<?php echo esc_attr( $user->ID ); ?>" <?php selected( $user->ID, $current_user_id ); ?>>
+                                    <?php echo esc_html( $display_text ); ?>
+                                </option>
+                                <?php
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    <div class="quora-form-row">
+                        <label for="quora-min-chars-publish"><?php _e( 'Publier si le texte fait plus de :', 'quora-importer' ); ?></label>
+                        <div>
+                            <input type="number" id="quora-min-chars-publish" name="min_chars_publish" value="500" min="0" />
+                            <span class="help-desc" style="display: block; margin-top: 4px;"><?php _e( 'caractères (les originaux publiés plus courts, ou brouillons, seront importés en Brouillon).', 'quora-importer' ); ?></span>
+                        </div>
                     </div>
                     
                     <div class="quora-form-row">
-                        <label for="quora-post-status"><?php _e( 'Statut par défaut :', 'quora-importer' ); ?></label>
-                        <select name="post_status" id="quora-post-status">
-                            <option value="publish"><?php _e( 'Publié', 'quora-importer' ); ?></option>
-                            <option value="draft" selected><?php _e( 'Brouillon', 'quora-importer' ); ?></option>
+                        <label for="quora-link-position"><?php _e( 'Lien vers Quora :', 'quora-importer' ); ?></label>
+                        <select name="link_position" id="quora-link-position">
+                            <option value="none" selected><?php _e( 'Non', 'quora-importer' ); ?></option>
+                            <option value="top"><?php _e( 'En haut de l\'article', 'quora-importer' ); ?></option>
+                            <option value="bottom"><?php _e( 'En bas de l\'article', 'quora-importer' ); ?></option>
                         </select>
+                    </div>
+                    
+                    <div class="quora-form-row" id="quora-link-template-row" style="display: none;">
+                        <label for="quora-link-template"><?php _e( 'Format du lien (HTML) :', 'quora-importer' ); ?></label>
+                        <input type="text" id="quora-link-template" name="link_template" value='<a href="$link$" target="_blank">voir sur Quora </a >' style="width: 100%; max-width: 400px;" />
                     </div>
                 </div>
                 
@@ -190,54 +211,57 @@ class Quora_Importer {
         
         <!-- STEP 3: PROGRESS SCREEN -->
         <div id="quora-step-progress" class="quora-step">
-            <h3 class="step-title"><?php _e( 'Importation en cours...', 'quora-importer' ); ?></h3>
-            <div class="quora-progress-wrapper">
-                <div class="quora-progress-bar-container">
-                    <div class="quora-progress-bar" id="quora-import-progress-bar" style="width: 0%;"></div>
+            <h3 class="step-title" id="quora-progress-title"><?php _e( 'Importation en cours...', 'quora-importer' ); ?></h3>
+            
+            <!-- Running status elements -->
+            <div id="quora-progress-running-section">
+                <div class="quora-progress-wrapper">
+                    <div class="quora-progress-bar-container">
+                        <div class="quora-progress-bar" id="quora-import-progress-bar" style="width: 0%;"></div>
+                    </div>
+                    <div class="quora-progress-stats">
+                        <span id="quora-progress-percentage">0%</span>
+                        <span id="quora-progress-fraction">0 / 0</span>
+                    </div>
                 </div>
-                <div class="quora-progress-stats">
-                    <span id="quora-progress-percentage">0%</span>
-                    <span id="quora-progress-fraction">0 / 0</span>
+            </div>
+            
+            <!-- Summary status elements (shown when finished) -->
+            <div id="quora-progress-finished-section" style="display: none;">
+                <div class="quora-summary-success-icon" style="margin: 10px 0 20px 0; text-align: center;">
+                    <span class="dashicons dashicons-saved" style="font-size: 60px; width: 60px; height: 60px;"></span>
+                </div>
+                <p class="step-intro" style="text-align: center; margin-bottom: 20px;"><?php _e( 'Votre blog Quora a été importé avec succès. Voici le résumé :', 'quora-importer' ); ?></p>
+                
+                <div class="quora-summary-stats-grid" style="margin-bottom: 25px;">
+                    <div class="summary-stat-card">
+                        <span class="stat-num" id="summary-stat-imported">0</span>
+                        <span class="stat-label"><?php _e( 'Articles importés', 'quora-importer' ); ?></span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="stat-num" id="summary-stat-skipped">0</span>
+                        <span class="stat-label"><?php _e( 'Articles ignorés', 'quora-importer' ); ?></span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="stat-num" id="summary-stat-images">0</span>
+                        <span class="stat-label"><?php _e( 'Images téléversées', 'quora-importer' ); ?></span>
+                    </div>
                 </div>
             </div>
             
             <div class="quora-console-log-header">
                 <span><?php _e( 'Journal d\'importation', 'quora-importer' ); ?></span>
-                <span class="status-indicator live pulsing"><?php _e( 'En direct', 'quora-importer' ); ?></span>
+                <span class="status-indicator live pulsing" id="quora-log-status-indicator"><?php _e( 'En direct', 'quora-importer' ); ?></span>
             </div>
             <div class="quora-console-log" id="quora-console-log">
                 <!-- Dynamically populated by AJAX logs -->
             </div>
             
-            <div class="quora-form-actions">
+            <div class="quora-form-actions" id="quora-progress-actions">
                 <button type="button" class="button button-link-delete" id="quora-abort-import"><?php _e( 'Arrêter l\'importation', 'quora-importer' ); ?></button>
             </div>
-        </div>
-        
-        <!-- STEP 4: SUMMARY SCREEN -->
-        <div id="quora-step-summary" class="quora-step">
-            <div class="quora-summary-success-icon">
-                <span class="dashicons dashicons-saved"></span>
-            </div>
-            <h3 class="step-title"><?php _e( 'Importation terminée !', 'quora-importer' ); ?></h3>
-            <p class="step-intro"><?php _e( 'Votre blog Quora a été importé avec succès. Voici le résumé :', 'quora-importer' ); ?></p>
             
-            <div class="quora-summary-stats-grid">
-                <div class="summary-stat-card">
-                    <span class="stat-num" id="summary-stat-imported">0</span>
-                    <span class="stat-label"><?php _e( 'Articles importés', 'quora-importer' ); ?></span>
-                </div>
-                <div class="summary-stat-card">
-                    <span class="stat-num" id="summary-stat-skipped">0</span>
-                    <span class="stat-label"><?php _e( 'Articles ignorés', 'quora-importer' ); ?></span>
-                </div>
-                <div class="summary-stat-card">
-                    <span class="stat-num" id="summary-stat-images">0</span>
-                    <span class="stat-label"><?php _e( 'Images téléversées', 'quora-importer' ); ?></span>
-                </div>
-            </div>
-            
-            <div class="quora-form-actions">
+            <div class="quora-form-actions" id="quora-finished-actions" style="display: none; justify-content: center; gap: 15px; margin-top: 20px;">
                 <a href="<?php echo admin_url( 'edit.php' ); ?>" class="button button-primary button-large"><?php _e( 'Voir tous les articles', 'quora-importer' ); ?></a>
                 <a href="<?php echo admin_url( 'admin.php?import=quora' ); ?>" class="button button-secondary button-large"><?php _e( 'Importer un autre fichier', 'quora-importer' ); ?></a>
             </div>
@@ -375,9 +399,11 @@ class Quora_Importer {
         $session_id = isset( $_POST['session_id'] ) ? sanitize_text_field( $_POST['session_id'] ) : '';
         $item_index = isset( $_POST['item_index'] ) ? intval( $_POST['item_index'] ) : -1;
         $author_id = isset( $_POST['author_id'] ) ? intval( $_POST['author_id'] ) : get_current_user_id();
-        $default_status = isset( $_POST['post_status'] ) ? sanitize_text_field( $_POST['post_status'] ) : 'publish';
+        $min_chars_publish = isset( $_POST['min_chars_publish'] ) ? intval( $_POST['min_chars_publish'] ) : 500;
         $import_images = ! empty( $_POST['import_images'] );
         $set_featured = ! empty( $_POST['set_featured'] );
+        $link_position = isset( $_POST['link_position'] ) ? sanitize_text_field( $_POST['link_position'] ) : 'none';
+        $link_template = isset( $_POST['link_template'] ) ? wp_unslash( $_POST['link_template'] ) : '';
         
         $enabled_types = isset( $_POST['enabled_types'] ) ? array_map( 'sanitize_text_field', $_POST['enabled_types'] ) : array();
         
@@ -412,10 +438,11 @@ class Quora_Importer {
         
         // Prepare title
         $title = $this->get_post_title( $post, $type );
+        $title = preg_replace( '/\[\/?math\]/i', '$', $title );
         
         // Check if post already exists (avoid duplicates)
         $existing = get_page_by_title( $title, OBJECT, 'post' );
-        if ( $existing && $existing->post_status === $default_status ) {
+        if ( $existing ) {
             wp_send_json_success( array(
                 'status'  => 'skipped',
                 'title'   => $title,
@@ -430,31 +457,51 @@ class Quora_Importer {
         $post_date = date( 'Y-m-d H:i:s', $timestamp );
         $post_date_gmt = gmdate( 'Y-m-d H:i:s', $timestamp );
         
-        // Set post status (handle drafts explicitly if the post type is draft)
-        $status = $default_status;
-        if ( strpos( strtolower( $type ), 'brouillon' ) !== false || strpos( strtolower( $type ), 'draft' ) !== false ) {
-            $status = 'draft';
-        }
-        
         // Clean URL redirects in HTML
         $content = ! empty( $post['Content'] ) ? $post['Content'] : '';
+        $content = preg_replace( '/\[\/?math\]/i', '$', $content );
         $content = $this->process_html_links( $content );
+        
+        // Set post status based on condition
+        $status = 'draft'; // Default to draft
+        $is_original_draft = ( strpos( strtolower( $type ), 'brouillon' ) !== false || strpos( strtolower( $type ), 'draft' ) !== false );
+        
+        if ( ! $is_original_draft ) {
+            $plain_text = wp_strip_all_tags( $content );
+            $char_count = mb_strlen( trim( $plain_text ), 'UTF-8' );
+            if ( $char_count > $min_chars_publish ) {
+                $status = 'publish';
+            }
+        }
         
         // Sideload images if requested
         $images_imported = 0;
         $featured_image_id = 0;
         
         if ( $import_images && $manifest['has_images'] ) {
-            $sideload_result = $this->sideload_content_images( $content, $manifest['extracted_dir'], $set_featured );
+            $sideload_result = $this->sideload_content_images( $content, $manifest['extracted_dir'], $set_featured, $post_date );
             $content = $sideload_result['content'];
             $images_imported = $sideload_result['count'];
             $featured_image_id = $sideload_result['featured_id'];
         }
         
+        // Add link to Quora if requested
+        if ( $link_position !== 'none' && ! empty( $link_template ) ) {
+            $quora_url = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id );
+            if ( ! empty( $quora_url ) ) {
+                $link_html = str_replace( '$link$', $quora_url, $link_template );
+                if ( $link_position === 'top' ) {
+                    $content = $link_html . "\n\n" . $content;
+                } elseif ( $link_position === 'bottom' ) {
+                    $content = $content . "\n\n" . $link_html;
+                }
+            }
+        }
+        
         // Build post data
         $post_data = array(
-            'post_title'     => $title,
-            'post_content'   => $content,
+            'post_title'     => wp_slash( $title ),
+            'post_content'   => wp_slash( $content ),
             'post_status'    => $status,
             'post_author'    => $author_id,
             'post_date'      => $post_date,
@@ -466,6 +513,16 @@ class Quora_Importer {
         
         if ( is_wp_error( $post_id ) ) {
             wp_send_json_error( array( 'message' => sprintf( __( 'Échec de création du post : %s', 'quora-importer' ), $post_id->get_error_message() ) ) );
+        }
+        
+        // Associate attachments with the post
+        if ( ! empty( $sideload_result['attachment_ids'] ) ) {
+            foreach ( $sideload_result['attachment_ids'] as $attach_id ) {
+                wp_update_post( array(
+                    'ID'          => $attach_id,
+                    'post_parent' => $post_id
+                ) );
+            }
         }
         
         // Add categories & tags
@@ -501,6 +558,11 @@ class Quora_Importer {
         // Set featured image
         if ( $featured_image_id > 0 ) {
             set_post_thumbnail( $post_id, $featured_image_id );
+        } else {
+            $default_image_id = $this->get_default_quora_image_id();
+            if ( $default_image_id > 0 ) {
+                set_post_thumbnail( $post_id, $default_image_id );
+            }
         }
         
         wp_send_json_success( array(
@@ -763,11 +825,12 @@ class Quora_Importer {
     /**
      * Sideload images from content html and replace local sources with WordPress URLs
      */
-    private function sideload_content_images( $content, $extracted_dir, $set_featured ) {
+    private function sideload_content_images( $content, $extracted_dir, $set_featured, $post_date ) {
         $result = array(
-            'content'     => $content,
-            'count'       => 0,
-            'featured_id' => 0
+            'content'        => $content,
+            'count'          => 0,
+            'featured_id'    => 0,
+            'attachment_ids' => array()
         );
         
         if ( empty( $content ) ) {
@@ -828,21 +891,48 @@ class Quora_Importer {
                 $attachment_id = $session_images_cache[$local_path]['id'];
                 $attachment_url = $session_images_cache[$local_path]['url'];
             } else {
+                // Get correct image extension (since Quora export images have no extension)
+                $ext = $this->get_image_extension( $local_path );
+                
                 // Sideload the image
                 // 1. Copy file to temp location because media_handle_sideload moves/deletes it
                 $tmp_dir = get_temp_dir();
-                $tmp_file = $tmp_dir . uniqid( 'quora_img_' ) . '_' . $filename;
+                $tmp_file = $tmp_dir . uniqid( 'quora_img_' ) . '_' . $filename . $ext;
                 
                 if ( copy( $local_path, $tmp_file ) ) {
                     $file_array = array(
-                        'name'     => $filename,
+                        'name'     => $filename . $ext,
                         'tmp_name' => $tmp_file,
                     );
                     
-                    // Sideload the attachment (unassociated with post_id first, we assign manually)
+                    // Filter to customize the upload directory using the post date
+                    $upload_dir_filter = function( $uploads ) use ( $post_date ) {
+                        $timestamp = strtotime( $post_date );
+                        if ( $timestamp ) {
+                            $year = date( 'Y', $timestamp );
+                            $month = date( 'm', $timestamp );
+                            $uploads['subdir'] = '/' . $year . '/' . $month;
+                            $uploads['path']   = $uploads['basedir'] . $uploads['subdir'];
+                            $uploads['url']    = $uploads['baseurl'] . $uploads['subdir'];
+                        }
+                        return $uploads;
+                    };
+                    
+                    add_filter( 'upload_dir', $upload_dir_filter );
+                    
+                    // Sideload the attachment (unassociated with post_id first, we assign manually after post is created)
                     $attachment_id = media_handle_sideload( $file_array, 0 );
                     
+                    remove_filter( 'upload_dir', $upload_dir_filter );
+                    
                     if ( ! is_wp_error( $attachment_id ) ) {
+                        // Update the attachment's date in database to match the post date
+                        wp_update_post( array(
+                            'ID'            => $attachment_id,
+                            'post_date'     => $post_date,
+                            'post_date_gmt' => get_gmt_from_date( $post_date )
+                        ) );
+                        
                         $attachment_url = wp_get_attachment_url( $attachment_id );
                         $session_images_cache[$local_path] = array(
                             'id'  => $attachment_id,
@@ -856,6 +946,7 @@ class Quora_Importer {
             }
             
             if ( $attachment_id > 0 && ! empty( $attachment_url ) ) {
+                $result['attachment_ids'][] = $attachment_id;
                 $img->setAttribute( 'src', $attachment_url );
                 $changed = true;
                 
@@ -884,6 +975,51 @@ class Quora_Importer {
         $result['featured_id'] = $featured_id;
         
         return $result;
+    }
+    
+    /**
+     * Detect the correct image file extension based on mime type or file signature.
+     */
+    private function get_image_extension( $path ) {
+        if ( function_exists( 'mime_content_type' ) ) {
+            $mime = @mime_content_type( $path );
+            if ( $mime ) {
+                $map = array(
+                    'image/jpeg'    => '.jpg',
+                    'image/jpg'     => '.jpg',
+                    'image/png'     => '.png',
+                    'image/gif'     => '.gif',
+                    'image/webp'    => '.webp',
+                    'image/svg+xml' => '.svg',
+                );
+                if ( isset( $map[$mime] ) ) {
+                    return $map[$mime];
+                }
+            }
+        }
+        
+        // Fallback: check file signature (magic numbers)
+        $handle = @fopen( $path, 'rb' );
+        if ( $handle ) {
+            $bytes = fread( $handle, 12 );
+            fclose( $handle );
+            if ( false !== $bytes ) {
+                if ( strpos( $bytes, "\xff\xd8\xff" ) === 0 ) {
+                    return '.jpg';
+                }
+                if ( strpos( $bytes, "\x89PNG\r\n\x1a\n" ) === 0 ) {
+                    return '.png';
+                }
+                if ( strpos( $bytes, 'GIF87a' ) === 0 || strpos( $bytes, 'GIF89a' ) === 0 ) {
+                    return '.gif';
+                }
+                if ( strpos( $bytes, 'RIFF' ) === 0 && strpos( substr( $bytes, 8, 4 ), 'WEBP' ) === 0 ) {
+                    return '.webp';
+                }
+            }
+        }
+        
+        return '.png'; // Default fallback
     }
     
     /**
@@ -916,6 +1052,184 @@ class Quora_Importer {
         return '';
     }
     
+    /**
+     * Helper to generate the original Quora URL of a post
+     */
+    private function generate_quora_url( $post, $extracted_dir, $author_id = 0 ) {
+        // Base domain based on language
+        $lang = ! empty( $post['Content language'] ) ? strtolower( $post['Content language'] ) : 'français';
+        $domain = ( strpos( $lang, 'fran' ) !== false ) ? 'fr.quora.com' : 'www.quora.com';
+        
+        // Author profile name
+        $profile_slug = '';
+        
+        // Try getting nickname from selected WP author
+        if ( ! empty( $author_id ) ) {
+            $user_data = get_userdata( $author_id );
+            if ( $user_data ) {
+                $nickname = get_user_meta( $author_id, 'nickname', true );
+                if ( empty( $nickname ) ) {
+                    $nickname = $user_data->display_name;
+                }
+                if ( ! empty( $nickname ) ) {
+                    $normalized = remove_accents( $nickname );
+                    $cleaned_name = preg_replace( '/[^A-Za-z0-9_\-\s]/', '', $normalized );
+                    $profile_slug = str_replace( array( ' ', '_' ), '-', $cleaned_name );
+                    $profile_slug = preg_replace( '/-+/', '-', $profile_slug );
+                }
+            }
+        }
+        
+        // Fallback to folder name
+        if ( empty( $profile_slug ) ) {
+            $folder_name = basename( $extracted_dir );
+            if ( strpos( $folder_name, 'Contenu_' ) === 0 ) {
+                $name = substr( $folder_name, 8 );
+                $name = preg_replace( '/_\d+$/', '', $name ); // Strip trailing digits
+                $profile_slug = str_replace( '_', '-', $name );
+            }
+        }
+        
+        // Check post type
+        $type = ! empty( $post['type'] ) ? $post['type'] : '';
+        $is_answer = ( strpos( strtolower( $type ), 'répondre' ) !== false || strpos( strtolower( $type ), 'answer' ) !== false );
+        
+        // Get question or title
+        $title = '';
+        if ( ! empty( $post['Question'] ) ) {
+            $title = $post['Question'];
+        } elseif ( ! empty( $post['Title'] ) ) {
+            $title = $post['Title'];
+        }
+        
+        if ( empty( $title ) && ! empty( $post['Content'] ) ) {
+            $title = $this->get_post_title( $post, $type );
+        }
+        
+        $title_slug = $this->quora_slugify( $title );
+        
+        if ( $is_answer && ! empty( $profile_slug ) && ! empty( $title_slug ) ) {
+            return "https://{$domain}/{$title_slug}/answer/{$profile_slug}";
+        }
+        
+        // Space posts
+        if ( ! empty( $post['Space name'] ) ) {
+            $space_slug = sanitize_title( $post['Space name'] );
+            if ( ! empty( $title_slug ) ) {
+                return "https://{$space_slug}.quora.com/{$title_slug}";
+            }
+            return "https://{$space_slug}.quora.com";
+        }
+        
+        // General fallback
+        if ( ! empty( $title_slug ) ) {
+            return "https://{$domain}/{$title_slug}";
+        }
+        
+        return "https://{$domain}";
+    }
+
+    /**
+     * Reconstruct a Quora-compatible slug that preserves case and accents.
+     */
+    private function quora_slugify( $title ) {
+        if ( empty( $title ) ) {
+            return '';
+        }
+        
+        // Strip [math] and [/math] tags if present
+        $title = preg_replace( '/\[\/?math\]/i', '', $title );
+        
+        // Strip everything except letters, numbers, spaces, and hyphens (preserving accents and case)
+        $slug = preg_replace( '/[^\p{L}\p{N}\s\-]/u', '', $title );
+        
+        // Replace spaces/tabs and consecutive hyphens with a single hyphen
+        $slug = preg_replace( '/[\s\-]+/u', '-', $slug );
+        $slug = trim( $slug, '-' );
+        
+        // Truncate slug to 190 UTF-8 characters to match Quora answer URLs
+        if ( mb_strlen( $slug, 'UTF-8' ) > 190 ) {
+            $slug = mb_substr( $slug, 0, 190, 'UTF-8' );
+            $last_hyphen = mb_strrpos( $slug, '-', 0, 'UTF-8' );
+            if ( $last_hyphen !== false ) {
+                $slug = mb_substr( $slug, 0, $last_hyphen, 'UTF-8' );
+            }
+        }
+        
+        // URL-encode all accented and special characters while preserving hyphens
+        return rawurlencode( $slug );
+    }
+
+    /**
+     * Get or upload the default Quora image and return its attachment ID.
+     */
+    private function get_default_quora_image_id() {
+        // Check if we already have it cached in an option to avoid DB searches
+        $cached_id = get_option( 'quora_importer_default_image_id' );
+        if ( $cached_id ) {
+            // Verify the attachment still exists
+            $post_status = get_post_status( $cached_id );
+            if ( $post_status === 'inherit' ) {
+                return (int) $cached_id;
+            }
+        }
+
+        // Check if the attachment already exists in the media library by title
+        $query = new WP_Query( array(
+            'post_type'   => 'attachment',
+            'post_status' => 'inherit',
+            'title'       => 'Quora Default',
+            'posts_per_page' => 1,
+        ) );
+
+        if ( $query->have_posts() ) {
+            $attachment_id = $query->posts[0]->ID;
+            update_option( 'quora_importer_default_image_id', $attachment_id );
+            return (int) $attachment_id;
+        }
+
+        // Upload the image since it does not exist
+        $plugin_dir = plugin_dir_path( dirname( __FILE__ ) );
+        $image_path = $plugin_dir . 'assets/quora.png';
+
+        if ( ! file_exists( $image_path ) ) {
+            return 0;
+        }
+
+        // Sideload/copy to upload directory
+        $upload_dir = wp_upload_dir();
+        $filename = 'quora-logo.png';
+        
+        // If a file with the same name exists, get a unique filename
+        $destination_filename = wp_unique_filename( $upload_dir['path'], $filename );
+        $destination = $upload_dir['path'] . '/' . $destination_filename;
+
+        if ( ! copy( $image_path, $destination ) ) {
+            return 0;
+        }
+
+        $filetype = wp_check_filetype( basename( $destination ), null );
+
+        $attachment = array(
+            'post_mime_type' => $filetype['type'],
+            'post_title'     => 'Quora Default',
+            'post_content'   => '',
+            'post_status'    => 'inherit'
+        );
+
+        $attachment_id = wp_insert_attachment( $attachment, $destination );
+
+        if ( ! is_wp_error( $attachment_id ) ) {
+            require_once( ABSPATH . 'wp-admin/includes/image.php' );
+            $attach_data = wp_generate_attachment_metadata( $attachment_id, $destination );
+            wp_update_attachment_metadata( $attachment_id, $attach_data );
+            update_option( 'quora_importer_default_image_id', $attachment_id );
+            return (int) $attachment_id;
+        }
+
+        return 0;
+    }
+
     /**
      * Helper to delete a folder and all its contents recursively
      */

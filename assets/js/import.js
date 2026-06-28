@@ -6,7 +6,9 @@ jQuery(document).ready(function($) {
     let importImages = 1;
     let setFeatured = 1;
     let authorId = 1;
-    let postStatus = 'draft';
+    let minCharsPublish = 500;
+    let linkPosition = 'none';
+    let linkTemplate = '';
     let enabledTypes = [];
     
     let currentIndex = 0;
@@ -205,6 +207,15 @@ jQuery(document).ready(function($) {
         cleanupSession(true);
     });
     
+    // Toggle link template input based on selection
+    $(document).on('change', '#quora-link-position', function() {
+        if ($(this).val() === 'none') {
+            $('#quora-link-template-row').slideUp(200);
+        } else {
+            $('#quora-link-template-row').slideDown(200);
+        }
+    });
+    
     /* ==========================================================================
        STEP 3: IMPORTING LOOP
        ========================================================================== */
@@ -213,7 +224,9 @@ jQuery(document).ready(function($) {
         
         // Collect form data
         authorId = $('#quora-post-author').val();
-        postStatus = $('#quora-post-status').val();
+        minCharsPublish = parseInt($('#quora-min-chars-publish').val()) || 500;
+        linkPosition = $('#quora-link-position').val();
+        linkTemplate = $('#quora-link-template').val();
         importImages = $('#quora-import-images').is(':checked') ? 1 : 0;
         setFeatured = $('#quora-set-featured').is(':checked') ? 1 : 0;
         
@@ -234,6 +247,15 @@ jQuery(document).ready(function($) {
         imagesCount = 0;
         isAborted = false;
         isImporting = true;
+        
+        // Reset elements in case of re-import
+        $('#quora-progress-title').text('Importation en cours...');
+        $('#quora-progress-running-section').show();
+        $('#quora-progress-finished-section').hide();
+        $('#quora-progress-actions').show();
+        $('#quora-finished-actions').hide();
+        $('#quora-abort-import').prop('disabled', false).text('Arrêter l\'importation');
+        $('#quora-log-status-indicator').addClass('live pulsing').removeClass('finished').text('En direct');
         
         $console.empty();
         $progressBar.css('width', '0%');
@@ -272,7 +294,9 @@ jQuery(document).ready(function($) {
                 session_id: sessionId,
                 item_index: currentIndex,
                 author_id: authorId,
-                post_status: postStatus,
+                min_chars_publish: minCharsPublish,
+                link_position: linkPosition,
+                link_template: linkTemplate,
                 import_images: importImages,
                 set_featured: setFeatured,
                 enabled_types: enabledTypes
@@ -283,10 +307,10 @@ jQuery(document).ready(function($) {
                     if (data.status === 'imported') {
                         importedCount++;
                         imagesCount += data.images_imported || 0;
-                        addLog(`[SUCCÈS] #${currentIndex + 1} : "${data.title}" importé. (Images: ${data.images_imported})`, 'success');
                     } else if (data.status === 'skipped') {
                         skippedCount++;
-                        addLog(`[IGNORÉ] #${currentIndex + 1} : "${data.title}" - ${data.message}`, 'info');
+                        // Log skipped items as warnings so the user knows why they were ignored
+                        addLog(`[IGNORÉ] #${currentIndex + 1} : "${data.title}" - ${data.message}`, 'warning');
                     }
                 } else {
                     addLog(`[ERREUR] #${currentIndex + 1} : ${response.data.message}`, 'error');
@@ -356,18 +380,45 @@ jQuery(document).ready(function($) {
                 if (redirectAfter) {
                     showStep('quora-step-upload');
                 } else {
-                    // Update stats on Step 4
+                    // Update stats on Step 3 Summary
+                    $('#quora-progress-title').text('Importation terminée !');
+                    $('#quora-progress-running-section').hide();
+                    $('#quora-progress-actions').hide();
+                    
                     $('#summary-stat-imported').text(importedCount);
                     $('#summary-stat-skipped').text(skippedCount);
                     $('#summary-stat-images').text(imagesCount);
-                    showStep('quora-step-summary');
+                    
+                    $('#quora-progress-finished-section').show();
+                    $('#quora-finished-actions').show();
+                    
+                    // Stop pulsing and change status indicator to Terminé
+                    $('#quora-log-status-indicator')
+                        .removeClass('live pulsing')
+                        .addClass('finished')
+                        .text('Terminé');
                 }
             },
             error: function() {
                 if (redirectAfter) {
                     showStep('quora-step-upload');
                 } else {
-                    showStep('quora-step-summary');
+                    // Fail gracefully but show final screen controls
+                    $('#quora-progress-title').text('Importation terminée !');
+                    $('#quora-progress-running-section').hide();
+                    $('#quora-progress-actions').hide();
+                    
+                    $('#summary-stat-imported').text(importedCount);
+                    $('#summary-stat-skipped').text(skippedCount);
+                    $('#summary-stat-images').text(imagesCount);
+                    
+                    $('#quora-progress-finished-section').show();
+                    $('#quora-finished-actions').show();
+                    
+                    $('#quora-log-status-indicator')
+                        .removeClass('live pulsing')
+                        .addClass('finished')
+                        .text('Terminé');
                 }
             }
         });

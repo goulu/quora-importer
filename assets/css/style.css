@@ -233,7 +233,7 @@
     color: #ffffff;
 }
 
-.quora-form-row select, .quora-form-row input[type="text"] {
+.quora-form-row select, .quora-form-row input[type="text"], .quora-form-row input[type="number"] {
     background: #11111b;
     border: 1px solid rgba(255,255,255,0.15);
     color: #cdd6f4;
@@ -243,7 +243,7 @@
     outline: none;
 }
 
-.quora-form-row select:focus, .quora-form-row input[type="text"]:focus {
+.quora-form-row select:focus, .quora-form-row input[type="text"]:focus, .quora-form-row input[type="number"]:focus {
     border-color: #cba6f7;
     box-shadow: 0 0 8px rgba(203, 166, 247, 0.3);
 }
@@ -434,6 +434,11 @@
 .status-indicator.live::before {
     background: #a6e3a1;
     box-shadow: 0 0 8px #a6e3a1;
+}
+
+.status-indicator.finished::before {
+    background: #89b4fa;
+    box-shadow: 0 0 8px #89b4fa;
 }
 
 .status-indicator.pulsing::before {
