@@ -243,6 +243,15 @@
     outline: none;
 }
 
+.quora-form-row select option {
+    background: #11111b;
+    color: #cdd6f4;
+}
+
+.quora-form-row select {
+    color-scheme: dark;
+}
+
 .quora-form-row select:focus, .quora-form-row input[type="text"]:focus, .quora-form-row input[type="number"]:focus {
     border-color: #cba6f7;
     box-shadow: 0 0 8px rgba(203, 166, 247, 0.3);

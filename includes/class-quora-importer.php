@@ -6,6 +6,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Quora_Importer {
     
     private static $instance = null;
+    private $last_topic_error = '';
     
     public static function get_instance() {
         if ( null === self::$instance ) {
@@ -230,6 +231,17 @@ class Quora_Importer {
                     </div>
                 </div>
                 
+                <div class="quora-form-section">
+                    <h4><?php esc_html_e( '4. Tag Settings', 'quora-importer' ); ?></h4>
+                    <div class="quora-form-row checkbox-row">
+                        <input type="checkbox" name="extract_topics" id="quora-extract-topics" value="1" />
+                        <label for="quora-extract-topics">
+                            <strong><?php esc_html_e( 'Extract Quora topic labels', 'quora-importer' ); ?></strong>
+                            <span class="help-desc"><?php esc_html_e( 'Visits the corresponding Quora link for each post to extract its original topic tags (e.g. "Sociologie", "Exemples") and apply them as WordPress tags.', 'quora-importer' ); ?></span>
+                        </label>
+                    </div>
+                </div>
+                
                 <div class="quora-form-actions">
                     <button type="button" class="button button-secondary button-large" id="quora-cancel-to-upload"><?php esc_html_e( 'Cancel', 'quora-importer' ); ?></button>
                     <button type="submit" class="button button-primary button-large" id="quora-submit-import"><?php esc_html_e( 'Start Import', 'quora-importer' ); ?></button>
@@ -423,6 +435,7 @@ class Quora_Importer {
      * AJAX action to import a single post item by index
      */
     public function ajax_import_item() {
+        ignore_user_abort( true );
         check_ajax_referer( 'quora-import-nonce', 'nonce' );
         
         if ( ! current_user_can( 'import' ) ) {
@@ -435,6 +448,7 @@ class Quora_Importer {
         $min_chars_publish = isset( $_POST['min_chars_publish'] ) ? intval( wp_unslash( $_POST['min_chars_publish'] ) ) : 500;
         $import_images = ! empty( $_POST['import_images'] );
         $set_featured = ! empty( $_POST['set_featured'] );
+        $extract_topics = ! empty( $_POST['extract_topics'] );
         $link_position = isset( $_POST['link_position'] ) ? sanitize_text_field( wp_unslash( $_POST['link_position'] ) ) : 'none';
         $link_template = isset( $_POST['link_template'] ) ? wp_kses_post( wp_unslash( $_POST['link_template'] ) ) : '';
         
@@ -469,10 +483,11 @@ class Quora_Importer {
         // Check if type is enabled
         if ( ! in_array( $type, $enabled_types ) ) {
             wp_send_json_success( array(
-                'status'  => 'skipped',
-                'title'   => $this->get_post_title( $post, $type ),
+                'status'   => 'skipped',
+                'title'    => $this->get_post_title( $post, $type ),
                 // translators: %s: post type.
-                'message' => sprintf( __( 'Post type "%s" skipped based on your filters.', 'quora-importer' ), $type )
+                'message'  => sprintf( __( 'Post type "%s" skipped based on your filters.', 'quora-importer' ), $type ),
+                'log_type' => 'info'
             ) );
         }
         
@@ -484,6 +499,7 @@ class Quora_Importer {
         $existing_query = new WP_Query( array(
             'post_type'              => 'post',
             'title'                  => $title,
+            'post_status'            => 'any',
             'posts_per_page'         => 1,
             'no_found_rows'          => true,
             'ignore_sticky_posts'    => true,
@@ -493,10 +509,47 @@ class Quora_Importer {
         $existing = $existing_query->have_posts() ? $existing_query->posts[0] : null;
         
         if ( $existing ) {
+            if ( $extract_topics ) {
+                $quora_url = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id );
+                if ( ! empty( $quora_url ) ) {
+                    $extracted_topics = $this->extract_quora_topics( $quora_url );
+                    if ( ! empty( $extracted_topics ) ) {
+                        $current_tags = wp_get_post_tags( $existing->ID, array( 'fields' => 'names' ) );
+                        if ( is_wp_error( $current_tags ) ) {
+                            $current_tags = array();
+                        }
+                        $new_tags = array_unique( array_merge( $current_tags, $extracted_topics ) );
+                        wp_set_post_tags( $existing->ID, $new_tags, false );
+                        
+                        // translators: 1: post ID, 2: number of topics updated.
+                        $msg = sprintf( __( 'Post already exists. Updated topics/tags (ID: %1$d, topics: %2$d).', 'quora-importer' ), $existing->ID, count( $extracted_topics ) );
+                        wp_send_json_success( array(
+                            'status'          => 'imported',
+                            'title'           => $title,
+                            'post_id'         => $existing->ID,
+                            'images_imported' => 0,
+                            'message'         => $msg,
+                            'log_type'        => 'info'
+                        ) );
+                    } elseif ( ! empty( $this->last_topic_error ) ) {
+                        // translators: %s: error details.
+                        $msg = sprintf( __( 'This post already exists in WordPress. Warning: Topic extraction failed (%s).', 'quora-importer' ), $this->last_topic_error );
+                        wp_send_json_success( array(
+                            'status'   => 'skipped',
+                            'title'    => $title,
+                            'post_id'  => $existing->ID,
+                            'message'  => $msg,
+                            'log_type' => 'warning'
+                        ) );
+                    }
+                }
+            }
             wp_send_json_success( array(
-                'status'  => 'skipped',
-                'title'   => $title,
-                'message' => __( 'This post already exists in WordPress.', 'quora-importer' )
+                'status'   => 'skipped',
+                'title'    => $title,
+                'post_id'  => $existing->ID,
+                'message'  => __( 'This post already exists in WordPress.', 'quora-importer' ),
+                'log_type' => 'info'
             ) );
         }
         
@@ -536,48 +589,29 @@ class Quora_Importer {
             $featured_image_id = $sideload_result['featured_id'];
         }
         
-        // Add link to Quora if requested
-        if ( $link_position !== 'none' && ! empty( $link_template ) ) {
+        // Generate Quora URL if link is requested or topics extraction is enabled
+        $quora_url = '';
+        if ( $extract_topics || ( $link_position !== 'none' && ! empty( $link_template ) ) ) {
             $quora_url = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id );
-            if ( ! empty( $quora_url ) ) {
-                $link_html = str_replace( '$link$', $quora_url, $link_template );
-                if ( $link_position === 'top' ) {
-                    $content = $link_html . "\n\n" . $content;
-                } elseif ( $link_position === 'bottom' ) {
-                    $content = $content . "\n\n" . $link_html;
-                }
+        }
+
+        // Extract Quora topics/labels if requested
+        $extracted_topics = array();
+        if ( $extract_topics && ! empty( $quora_url ) ) {
+            $extracted_topics = $this->extract_quora_topics( $quora_url );
+        }
+
+        // Add link to Quora if requested
+        if ( $link_position !== 'none' && ! empty( $link_template ) && ! empty( $quora_url ) ) {
+            $link_html = str_replace( '$link$', $quora_url, $link_template );
+            if ( $link_position === 'top' ) {
+                $content = $link_html . "\n\n" . $content;
+            } elseif ( $link_position === 'bottom' ) {
+                $content = $content . "\n\n" . $link_html;
             }
         }
         
-        // Build post data
-        $post_data = array(
-            'post_title'     => wp_slash( $title ),
-            'post_content'   => wp_slash( $content ),
-            'post_status'    => $status,
-            'post_author'    => $author_id,
-            'post_date'      => $post_date,
-            'post_date_gmt'  => $post_date_gmt,
-            'post_type'      => 'post',
-        );
-        
-        $post_id = wp_insert_post( $post_data );
-        
-        if ( is_wp_error( $post_id ) ) {
-            // translators: %s: error message.
-            wp_send_json_error( array( 'message' => sprintf( __( 'Failed to create post: %s', 'quora-importer' ), $post_id->get_error_message() ) ) );
-        }
-        
-        // Associate attachments with the post
-        if ( ! empty( $sideload_result['attachment_ids'] ) ) {
-            foreach ( $sideload_result['attachment_ids'] as $attach_id ) {
-                wp_update_post( array(
-                    'ID'          => $attach_id,
-                    'post_parent' => $post_id
-                ) );
-            }
-        }
-        
-        // Add categories & tags
+        // Prepare categories & tags before creating the post for database atomicity
         $categories = array();
         $tags = array();
         
@@ -603,9 +637,42 @@ class Quora_Importer {
         }
         
         $tags[] = 'Quora';
+
+        if ( ! empty( $extracted_topics ) ) {
+            foreach ( $extracted_topics as $topic ) {
+                $tags[] = $topic;
+            }
+        }
         
-        wp_set_post_categories( $post_id, $categories );
-        wp_set_post_tags( $post_id, $tags, true );
+        // Build post data
+        $post_data = array(
+            'post_title'     => wp_slash( $title ),
+            'post_content'   => wp_slash( $content ),
+            'post_status'    => $status,
+            'post_author'    => $author_id,
+            'post_date'      => $post_date,
+            'post_date_gmt'  => $post_date_gmt,
+            'post_type'      => 'post',
+            'post_category'  => $categories,
+            'tags_input'     => $tags,
+        );
+        
+        $post_id = wp_insert_post( $post_data );
+        
+        if ( is_wp_error( $post_id ) ) {
+            // translators: %s: error message.
+            wp_send_json_error( array( 'message' => sprintf( __( 'Failed to create post: %s', 'quora-importer' ), $post_id->get_error_message() ) ) );
+        }
+        
+        // Associate attachments with the post
+        if ( ! empty( $sideload_result['attachment_ids'] ) ) {
+            foreach ( $sideload_result['attachment_ids'] as $attach_id ) {
+                wp_update_post( array(
+                    'ID'          => $attach_id,
+                    'post_parent' => $post_id
+                ) );
+            }
+        }
         
         // Set featured image
         if ( $featured_image_id > 0 ) {
@@ -617,13 +684,28 @@ class Quora_Importer {
             }
         }
         
+        $log_type = 'info';
+        if ( ! empty( $extracted_topics ) ) {
+            // translators: 1: post ID, 2: number of images imported, 3: number of topics extracted.
+            $msg = sprintf( __( 'Post imported successfully (ID: %1$d, images: %2$d, topics: %3$d).', 'quora-importer' ), $post_id, $images_imported, count( $extracted_topics ) );
+        } else {
+            if ( $extract_topics && ! empty( $this->last_topic_error ) ) {
+                // translators: 1: post ID, 2: number of images imported, 3: topic error details.
+                $msg = sprintf( __( 'Post imported successfully (ID: %1$d, images: %2$d). Warning: Topic extraction failed (%3$s).', 'quora-importer' ), $post_id, $images_imported, $this->last_topic_error );
+                $log_type = 'warning';
+            } else {
+                // translators: 1: post ID, 2: number of images imported.
+                $msg = sprintf( __( 'Post imported successfully (ID: %1$d, images: %2$d).', 'quora-importer' ), $post_id, $images_imported );
+            }
+        }
+
         wp_send_json_success( array(
             'status'          => 'imported',
             'title'           => $title,
             'post_id'         => $post_id,
             'images_imported' => $images_imported,
-            // translators: 1: post ID, 2: number of images imported.
-            'message'         => sprintf( __( 'Post imported successfully (ID: %1$d, images: %2$d).', 'quora-importer' ), $post_id, $images_imported )
+            'message'         => $msg,
+            'log_type'        => $log_type,
         ) );
     }
     
@@ -755,9 +837,73 @@ class Quora_Importer {
                                     $value .= $dom->saveHTML( $child );
                                 }
                             } else {
+                                // Reconstruct link to target URL instead of anchor text in titles/questions
+                                $anchors = $span->getElementsByTagName( 'a' );
+                                if ( $anchors->length > 0 ) {
+                                    $anchor_list = array();
+                                    foreach ( $anchors as $a ) {
+                                        $anchor_list[] = $a;
+                                    }
+                                    foreach ( $anchor_list as $a ) {
+                                        $href = $a->getAttribute( 'href' );
+                                        $target_url = '';
+                                        if ( ! empty( $href ) ) {
+                                            if ( strpos( $href, 'quora.com/_/redirect' ) !== false ) {
+                                                $query = wp_parse_url( $href, PHP_URL_QUERY );
+                                                if ( $query ) {
+                                                    $params = array();
+                                                    parse_str( $query, $params );
+                                                    if ( ! empty( $params['url'] ) ) {
+                                                        $target_url = urldecode( $params['url'] );
+                                                    } elseif ( ! empty( $params['to'] ) ) {
+                                                        $target_url = urldecode( $params['to'] );
+                                                    }
+                                                }
+                                            }
+                                            if ( empty( $target_url ) && filter_var( $href, FILTER_VALIDATE_URL ) ) {
+                                                $target_url = $href;
+                                            }
+                                        }
+                                        if ( ! empty( $target_url ) ) {
+                                            $a->nodeValue = htmlspecialchars( $target_url, ENT_QUOTES, 'UTF-8' );
+                                        }
+                                    }
+                                }
                                 $value = trim( $span->textContent );
                             }
                         } else {
+                            // Reconstruct link to target URL in parent div if no span is present
+                            $anchors = $curr->getElementsByTagName( 'a' );
+                            if ( $anchors->length > 0 ) {
+                                $anchor_list = array();
+                                foreach ( $anchors as $a ) {
+                                    $anchor_list[] = $a;
+                                }
+                                foreach ( $anchor_list as $a ) {
+                                    $href = $a->getAttribute( 'href' );
+                                    $target_url = '';
+                                    if ( ! empty( $href ) ) {
+                                        if ( strpos( $href, 'quora.com/_/redirect' ) !== false ) {
+                                            $query = wp_parse_url( $href, PHP_URL_QUERY );
+                                            if ( $query ) {
+                                                $params = array();
+                                                parse_str( $query, $params );
+                                                if ( ! empty( $params['url'] ) ) {
+                                                    $target_url = urldecode( $params['url'] );
+                                                } elseif ( ! empty( $params['to'] ) ) {
+                                                    $target_url = urldecode( $params['to'] );
+                                                }
+                                            }
+                                        }
+                                        if ( empty( $target_url ) && filter_var( $href, FILTER_VALIDATE_URL ) ) {
+                                            $target_url = $href;
+                                        }
+                                    }
+                                    if ( ! empty( $target_url ) ) {
+                                        $a->nodeValue = htmlspecialchars( $target_url, ENT_QUOTES, 'UTF-8' );
+                                    }
+                                }
+                            }
                             $value = trim( str_replace( $strong->textContent, '', $curr->textContent ) );
                         }
                         $post_data[$label] = $value;
@@ -861,6 +1007,10 @@ class Quora_Importer {
                     parse_str( $query, $params );
                     if ( ! empty( $params['url'] ) ) {
                         $clean_url = urldecode( $params['url'] );
+                        $a->setAttribute( 'href', $clean_url );
+                        $changed = true;
+                    } elseif ( ! empty( $params['to'] ) ) {
+                        $clean_url = urldecode( $params['to'] );
                         $a->setAttribute( 'href', $clean_url );
                         $changed = true;
                     }
@@ -1121,6 +1271,16 @@ class Quora_Importer {
      * Helper to generate the original Quora URL of a post
      */
     private function generate_quora_url( $post, $extracted_dir, $author_id = 0 ) {
+        // First, check if there is a direct URL already parsed from the HTML export
+        foreach ( array( 'Answer', 'Question', 'Link', 'url' ) as $key ) {
+            if ( ! empty( $post[$key] ) ) {
+                $val = trim( $post[$key] );
+                if ( filter_var( $val, FILTER_VALIDATE_URL ) ) {
+                    return $val;
+                }
+            }
+        }
+
         // Base domain based on language
         $lang = ! empty( $post['Content language'] ) ? strtolower( $post['Content language'] ) : 'français';
         $domain = ( strpos( $lang, 'fran' ) !== false ) ? 'fr.quora.com' : 'www.quora.com';
@@ -1204,6 +1364,9 @@ class Quora_Importer {
         
         // Strip [math] and [/math] tags if present
         $title = preg_replace( '/\[\/?math\]/i', '', $title );
+
+        // Replace slashes and underscores with spaces to prevent word merging
+        $title = str_replace( array( '/', '_' ), ' ', $title );
         
         // Strip everything except letters, numbers, spaces, and hyphens (preserving accents and case)
         $slug = preg_replace( '/[^\p{L}\p{N}\s\-]/u', '', $title );
@@ -1212,9 +1375,28 @@ class Quora_Importer {
         $slug = preg_replace( '/[\s\-]+/u', '-', $slug );
         $slug = trim( $slug, '-' );
         
-        // Truncate slug to 190 UTF-8 characters to match Quora answer URLs
-        if ( mb_strlen( $slug, 'UTF-8' ) > 190 ) {
-            $slug = mb_substr( $slug, 0, 190, 'UTF-8' );
+        // Truncate slug to 200 UTF-8 characters to match Quora answer URLs
+        if ( mb_strlen( $slug, 'UTF-8' ) > 200 ) {
+            $truncated = mb_substr( $slug, 0, 200, 'UTF-8' );
+            $next_char = mb_substr( $slug, 200, 1, 'UTF-8' );
+            if ( $next_char === '-' || $next_char === '' ) {
+                $slug = $truncated;
+            } else {
+                $last_hyphen = mb_strrpos( $truncated, '-', 0, 'UTF-8' );
+                if ( $last_hyphen !== false ) {
+                    $slug = mb_substr( $truncated, 0, $last_hyphen, 'UTF-8' );
+                } else {
+                    $slug = $truncated;
+                }
+            }
+        }
+
+        // Enforce URL-encoded length limit of 215 characters
+        $encoded = rawurlencode( $slug );
+        if ( strlen( $encoded ) > 215 ) {
+            while ( strlen( rawurlencode( $slug ) ) > 215 && mb_strlen( $slug, 'UTF-8' ) > 0 ) {
+                $slug = mb_substr( $slug, 0, -1, 'UTF-8' );
+            }
             $last_hyphen = mb_strrpos( $slug, '-', 0, 'UTF-8' );
             if ( $last_hyphen !== false ) {
                 $slug = mb_substr( $slug, 0, $last_hyphen, 'UTF-8' );
@@ -1363,4 +1545,129 @@ class Quora_Importer {
             $wp_filesystem->delete( $dir, true );
         }
     }
+
+    /**
+     * Visit Quora URL and extract topic labels
+     *
+     * @param string $url The Quora URL.
+     * @return array Array of topic names.
+     */
+    private function extract_quora_topics( $url ) {
+        $this->last_topic_error = '';
+        if ( empty( $url ) ) {
+            return array();
+        }
+
+        // Try running the Python scraper helper which bypasses Cloudflare
+        $python_script = plugin_dir_path( __FILE__ ) . 'scrape-topics.py';
+        if ( file_exists( $python_script ) ) {
+            $python_executable = 'python3';
+            $possible_paths = array(
+                '/usr/bin/python3',
+                '/usr/local/bin/python3',
+                '/bin/python3',
+                '/usr/bin/python',
+            );
+            foreach ( $possible_paths as $path ) {
+                if ( @is_executable( $path ) ) {
+                    $python_executable = $path;
+                    break;
+                }
+            }
+            $cmd = escapeshellcmd( $python_executable ) . ' ' . escapeshellarg( $python_script ) . ' ' . escapeshellarg( $url );
+            $output = array();
+            $retval = null;
+            exec( $cmd, $output, $retval );
+            if ( 0 === $retval && ! empty( $output ) ) {
+                $response_data = json_decode( implode( '', $output ), true );
+                if ( is_array( $response_data ) && isset( $response_data['success'] ) ) {
+                    if ( $response_data['success'] ) {
+                        return $response_data['topics'];
+                    } else {
+                        $this->last_topic_error = $response_data['error'];
+                        return array();
+                    }
+                } else {
+                    $topics = json_decode( implode( '', $output ), true );
+                    if ( is_array( $topics ) && ! empty( $topics ) ) {
+                        return $topics;
+                    }
+                }
+            } else {
+                // translators: %d: exit code.
+                $this->last_topic_error = sprintf( __( 'Python scraper failed with exit code %d', 'quora-importer' ), $retval );
+            }
+        }
+
+        // Fallback: Set realistic User-Agent and headers
+        $args = array(
+            'timeout'    => 10,
+            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'headers'    => array(
+                'Accept-Language' => 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept'          => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            ),
+        );
+
+        $response = wp_safe_remote_get( $url, $args );
+
+        if ( is_wp_error( $response ) ) {
+            $this->last_topic_error = $response->get_error_message();
+            return array();
+        }
+
+        $http_code = wp_remote_retrieve_response_code( $response );
+        if ( 200 !== $http_code ) {
+            // translators: %d: HTTP code.
+            $this->last_topic_error = sprintf( __( 'HTTP error %d', 'quora-importer' ), $http_code );
+            return array();
+        }
+
+        $html = wp_remote_retrieve_body( $response );
+        if ( empty( $html ) ) {
+            $this->last_topic_error = __( 'Empty response body', 'quora-importer' );
+            return array();
+        }
+
+        $topics = array();
+
+        // 1. Try matching JSON format
+        // E.g., \"url\":\"https://fr.quora.com/topic/Sociologie\",\"name\":\"Sociologie\"
+        if ( preg_match_all( '/\\\\*"url\\\\*":\\\\*"(https?:\\/\\/[^\\"/]+\\/topic\\/(?:[^\\"\\\]|\\\\.)*?)\\\\*",\\\\*"name\\\\*":\\\\*"((?:[^\\"\\\]|\\\\.)*?)\\\\*"/is', $html, $matches_json ) ) {
+            if ( ! empty( $matches_json[2] ) ) {
+                foreach ( $matches_json[2] as $label ) {
+                    $label = str_replace( array( '\\"', '\\\\' ), array( '"', '\\' ), $label );
+                    // Decode unicode escapes like \u00e9 or \\u00e9
+                    $label = preg_replace_callback( '/\\\\u([0-9a-fA-F]{4})/', function( $match ) {
+                        return mb_convert_encoding( pack( 'H*', $match[1] ), 'UTF-8', 'UCS-2BE' );
+                    }, $label );
+                    $label = trim( strip_tags( $label ) );
+                    $label = html_entity_decode( $label, ENT_QUOTES, 'UTF-8' );
+                    if ( ! empty( $label ) && ! in_array( $label, $topics, true ) ) {
+                        if ( strlen( $label ) < 50 ) {
+                            $topics[] = $label;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Try matching standard HTML link format
+        if ( empty( $topics ) && preg_match_all( '/href=["\'][^"\']*\/topic\/([^"\'\/]+)["\'][^>]*>(.*?)<\/a>/is', $html, $matches_html ) ) {
+            if ( ! empty( $matches_html[2] ) ) {
+                foreach ( $matches_html[2] as $label ) {
+                    $label = trim( strip_tags( $label ) );
+                    $label = html_entity_decode( $label, ENT_QUOTES, 'UTF-8' );
+                    if ( ! empty( $label ) && ! in_array( $label, $topics, true ) ) {
+                        if ( strlen( $label ) < 50 ) {
+                            $topics[] = $label;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $topics;
+    }
 }
+

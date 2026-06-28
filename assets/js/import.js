@@ -10,6 +10,7 @@ jQuery(document).ready(function($) {
     let linkPosition = 'none';
     let linkTemplate = '';
     let enabledTypes = [];
+    let extractTopics = 0;
     
     let currentIndex = 0;
     let importedCount = 0;
@@ -229,6 +230,7 @@ jQuery(document).ready(function($) {
         linkTemplate = $('#quora-link-template').val();
         importImages = $('#quora-import-images').is(':checked') ? 1 : 0;
         setFeatured = $('#quora-set-featured').is(':checked') ? 1 : 0;
+        extractTopics = $('#quora-extract-topics').is(':checked') ? 1 : 0;
         
         enabledTypes = [];
         $('input[name="enabled_types[]"]:checked').each(function() {
@@ -299,6 +301,7 @@ jQuery(document).ready(function($) {
                 link_template: linkTemplate,
                 import_images: importImages,
                 set_featured: setFeatured,
+                extract_topics: extractTopics,
                 enabled_types: enabledTypes
             },
             success: function(response) {
@@ -307,14 +310,28 @@ jQuery(document).ready(function($) {
                     if (data.status === 'imported') {
                         importedCount++;
                         imagesCount += data.images_imported || 0;
+                        if (data.log_type === 'warning' || data.log_type === 'error') {
+                            let logMsg = data.message;
+                            if (data.post_id) {
+                                logMsg += ` <a href="post.php?post=${data.post_id}&action=edit" target="_blank" style="text-decoration: underline;">[Voir/Modifier]</a>`;
+                            }
+                            addLog(logMsg, data.log_type);
+                        }
                     } else if (data.status === 'skipped') {
                         skippedCount++;
-                        // Log skipped items as warnings so the user knows why they were ignored
-                        let logMsg = quoraImporter.strings.skipped_log.replace('%d', currentIndex + 1).replace('%s', data.title).replace('%s', data.message);
-                        addLog(logMsg, 'warning');
+                        if (data.log_type === 'warning' || data.log_type === 'error') {
+                            let logMsg = quoraImporter.strings.skipped_log.replace('%d', currentIndex + 1).replace('%s', data.title).replace('%s', data.message);
+                            if (data.post_id) {
+                                logMsg += ` <a href="post.php?post=${data.post_id}&action=edit" target="_blank" style="text-decoration: underline;">[Voir/Modifier]</a>`;
+                            }
+                            addLog(logMsg, data.log_type);
+                        }
                     }
                 } else {
                     let logMsg = quoraImporter.strings.error_log.replace('%d', currentIndex + 1).replace('%s', response.data.message);
+                    if (response.data && response.data.post_id) {
+                        logMsg += ` <a href="post.php?post=${response.data.post_id}&action=edit" target="_blank" style="text-decoration: underline;">[Voir/Modifier]</a>`;
+                    }
                     addLog(logMsg, 'error');
                 }
                 

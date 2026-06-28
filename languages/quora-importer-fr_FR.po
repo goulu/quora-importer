@@ -249,3 +249,35 @@ msgstr "Nettoyage terminé avec succès."
 
 msgid "No folder to clean up."
 msgstr "Aucun dossier à nettoyer."
+
+msgid "4. Tag Settings"
+msgstr "4. Étiquettes"
+
+msgid "Extract Quora topic labels"
+msgstr "Extraire les étiquettes Quora"
+
+msgid "Visits the corresponding Quora link for each post to extract its original topic tags (e.g. \"Sociologie\", \"Exemples\") and apply them as WordPress tags."
+msgstr "Visite le lien Quora de chaque article pour extraire les étiquettes d'origine (ex. \"Sociologie\", \"Exemples\") et les appliquer comme étiquettes WordPress."
+
+msgid "Post imported successfully (ID: %1$d, images: %2$d, topics: %3$d)."
+msgstr "Article importé avec succès (ID : %1$d, images : %2$d, étiquettes : %3$d)."
+
+msgid "Post already exists. Updated topics/tags (ID: %1$d, topics: %2$d)."
+msgstr "L'article existe déjà. Étiquettes mises à jour (ID : %1$d, étiquettes : %2$d)."
+
+msgid "Python scraper failed with exit code %d"
+msgstr "Le scraper Python a échoué avec le code de retour %d"
+
+msgid "HTTP error %d"
+msgstr "Erreur HTTP %d"
+
+msgid "Empty response body"
+msgstr "Corps de réponse vide"
+
+msgid "This post already exists in WordPress. Warning: Topic extraction failed (%s)."
+msgstr "Cet article existe déjà dans WordPress. Attention : l'extraction des étiquettes a échoué (%s)."
+
+msgid "Post imported successfully (ID: %1$d, images: %2$d). Warning: Topic extraction failed (%3$s)."
+msgstr "Article importé avec succès (ID : %1$d, images : %2$d). Attention : l'extraction des étiquettes a échoué (%3$s)."
+
+
