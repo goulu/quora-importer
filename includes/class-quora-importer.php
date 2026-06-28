@@ -31,7 +31,7 @@ class Quora_Importer {
         register_importer(
             'quora',
             'Quora',
-            __( 'Importer un blog Quora à partir d\'un fichier ZIP ou index.html.', 'quora-importer' ),
+            __( 'Import a Quora blog from a ZIP or index.html file.', 'quora-importer' ),
             array( $this, 'dispatch' )
         );
     }
@@ -40,6 +40,7 @@ class Quora_Importer {
      * Enqueue CSS and JS for the importer page
      */
     public function admin_enqueue_assets( $hook ) {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- GET parameter used only to target enqueuing assets on the specific admin page.
         if ( 'admin.php' === $hook && isset( $_GET['import'] ) && 'quora' === $_GET['import'] ) {
             wp_enqueue_style( 'quora-importer-style', QUORA_IMPORTER_URL . 'assets/css/style.css', array(), QUORA_IMPORTER_VERSION );
             wp_enqueue_script( 'quora-importer-script', QUORA_IMPORTER_URL . 'assets/js/import.js', array( 'jquery' ), QUORA_IMPORTER_VERSION, true );
@@ -48,12 +49,36 @@ class Quora_Importer {
                 'ajax_url' => admin_url( 'admin-ajax.php' ),
                 'nonce'    => wp_create_nonce( 'quora-import-nonce' ),
                 'strings'  => array(
-                    'error_upload'   => __( 'Erreur lors du téléversement du fichier.', 'quora-importer' ),
-                    'error_parse'    => __( 'Erreur lors de l\'analyse du fichier.', 'quora-importer' ),
-                    'importing'      => __( 'Importation en cours...', 'quora-importer' ),
-                    'completed'      => __( 'Importation terminée avec succès !', 'quora-importer' ),
-                    'uploading'      => __( 'Téléversement en cours...', 'quora-importer' ),
-                    'processing_zip' => __( 'Décompression de l\'archive et analyse du contenu...', 'quora-importer' ),
+                    'error_upload'        => __( 'Error uploading file.', 'quora-importer' ),
+                    'error_parse'         => __( 'Error parsing file.', 'quora-importer' ),
+                    'importing'           => __( 'Importing...', 'quora-importer' ),
+                    'completed'           => __( 'Import completed successfully!', 'quora-importer' ),
+                    'uploading'           => __( 'Uploading...', 'quora-importer' ),
+                    'processing_zip'      => __( 'Extracting archive and parsing content...', 'quora-importer' ),
+                    'select_valid_file'   => __( 'Please select a valid .zip or .html file.', 'quora-importer' ),
+                    // translators: %d: number of posts.
+                    'posts_found'         => __( 'We found <strong>%d posts</strong> in your export file.', 'quora-importer' ),
+                    'images_found'        => __( ' Associated images were detected and will be imported.', 'quora-importer' ),
+                    'no_images_found'     => __( ' No image folder detected (text import only).', 'quora-importer' ),
+                    // translators: %s: author name.
+                    'suggested_author'    => __( 'Suggested author "%s" pre-selected.', 'quora-importer' ),
+                    'select_content_type' => __( 'Please select at least one content type to import.', 'quora-importer' ),
+                    'abort_confirm'       => __( 'Are you sure you want to stop the current import?', 'quora-importer' ),
+                    'aborting'            => __( 'Stopping...', 'quora-importer' ),
+                    // translators: %d: number of posts.
+                    'import_started'      => __( 'Starting import of %d posts...', 'quora-importer' ),
+                    'import_aborted'      => __( 'Import stopped by user.', 'quora-importer' ),
+                    // translators: 1: post index, 2: post title, 3: skip reason.
+                    'skipped_log'         => __( '[SKIPPED] #%1$d: "%2$s" - %3$s', 'quora-importer' ),
+                    // translators: 1: post index, 2: error message.
+                    'error_log'           => __( '[ERROR] #%1$d: %2$s', 'quora-importer' ),
+                    // translators: %d: post index.
+                    'network_error'       => __( '[ERROR] Network failure during import of post #%d. Retrying...', 'quora-importer' ),
+                    // translators: 1: number of posts imported, 2: number of posts skipped.
+                    'import_finished'     => __( 'Import finished! %1$d posts imported, %2$d skipped. Cleaning up...', 'quora-importer' ),
+                    'live'                => __( 'Live', 'quora-importer' ),
+                    'finished'            => __( 'Finished', 'quora-importer' ),
+                    'stop_import'         => __( 'Stop Import', 'quora-importer' ),
                 )
             ) );
         }
@@ -73,8 +98,8 @@ class Quora_Importer {
         <div class="wrap quora-importer-wrap">
             <header class="quora-importer-header">
                 <div class="quora-logo-badge">Q</div>
-                <h1><?php _e( 'Importateur de Blog Quora', 'quora-importer' ); ?></h1>
-                <p class="description"><?php _e( 'Migrez facilement vos réponses, brouillons et publications d\'espace Quora vers WordPress.', 'quora-importer' ); ?></p>
+                <h1><?php esc_html_e( 'Quora Blog Importer', 'quora-importer' ); ?></h1>
+                <p class="description"><?php esc_html_e( 'Easily migrate your Quora answers, drafts, and space posts to WordPress.', 'quora-importer' ); ?></p>
             </header>
             
             <div class="quora-importer-card" id="quora-importer-container">
@@ -85,7 +110,10 @@ class Quora_Importer {
         ?>
             </div> <!-- .quora-importer-card -->
             <footer class="quora-importer-footer-note">
-                <p>Quora Importer Plugin &bull; Version <?php echo QUORA_IMPORTER_VERSION; ?> &bull; Par Philippe Guglielmetti & Antigravity</p>
+                <p><?php
+                // translators: %s: plugin version.
+                echo wp_kses_post( sprintf( __( 'Quora Importer Plugin &bull; Version %s &bull; By Philippe Guglielmetti & Antigravity', 'quora-importer' ), esc_html( QUORA_IMPORTER_VERSION ) ) );
+                ?></p>
             </footer>
         </div> <!-- .wrap -->
         <?php
@@ -98,20 +126,20 @@ class Quora_Importer {
             <div class="quora-dropzone" id="quora-dropzone">
                 <div class="quora-dropzone-inner">
                     <span class="dashicons dashicons-upload quora-upload-icon"></span>
-                    <h3><?php _e( 'Téléversez votre fichier d\'exportation', 'quora-importer' ); ?></h3>
-                    <p><?php _e( 'Glissez-déposez votre fichier ZIP d\'exportation Quora (ou votre fichier index.html) ici, ou cliquez pour parcourir.', 'quora-importer' ); ?></p>
-                    <button class="button button-primary button-hero quora-browse-btn" type="button"><?php _e( 'Sélectionner le fichier', 'quora-importer' ); ?></button>
+                    <h3><?php esc_html_e( 'Upload your export file', 'quora-importer' ); ?></h3>
+                    <p><?php esc_html_e( 'Drag & drop your Quora export ZIP file (or index.html) here, or click to browse.', 'quora-importer' ); ?></p>
+                    <button class="button button-primary button-hero quora-browse-btn" type="button"><?php esc_html_e( 'Select File', 'quora-importer' ); ?></button>
                     <input type="file" id="quora-file-input" accept=".zip,.html" style="display: none;" />
                 </div>
             </div>
             
             <div class="quora-help-card">
-                <h4><span class="dashicons dashicons-info"></span> <?php _e( 'Comment obtenir votre fichier d\'exportation Quora ?', 'quora-importer' ); ?></h4>
+                <h4><span class="dashicons dashicons-info"></span> <?php esc_html_e( 'How to get your Quora export file?', 'quora-importer' ); ?></h4>
                 <ol>
-                    <li><?php _e( 'Connectez-vous à Quora et allez dans vos <strong>Paramètres de compte</strong>.', 'quora-importer' ); ?></li>
-                    <li><?php _e( 'Sous l\'onglet <strong>Vie privée (Privacy)</strong>, cliquez sur <strong>Télécharger vos données (Request Archive)</strong>.', 'quora-importer' ); ?></li>
-                    <li><?php _e( 'Vous recevrez un e-mail de Quora contenant un lien pour télécharger votre archive ZIP.', 'quora-importer' ); ?></li>
-                    <li><?php _e( 'Téléversez cette archive ZIP directement ici pour préserver toutes vos réponses et vos images !', 'quora-importer' ); ?></li>
+                    <li><?php echo wp_kses_post( __( 'Log in to Quora and go to your <strong>Account Settings</strong>.', 'quora-importer' ) ); ?></li>
+                    <li><?php echo wp_kses_post( __( 'Under the <strong>Privacy</strong> tab, click <strong>Download your data (Request Archive)</strong>.', 'quora-importer' ) ); ?></li>
+                    <li><?php esc_html_e( 'You will receive an email from Quora containing a link to download your ZIP archive.', 'quora-importer' ); ?></li>
+                    <li><?php esc_html_e( 'Upload this ZIP archive directly here to preserve all your answers and images!', 'quora-importer' ); ?></li>
                 </ol>
             </div>
         </div>
@@ -120,23 +148,23 @@ class Quora_Importer {
         <div id="quora-step-loading" class="quora-step">
             <div class="quora-loading-spinner">
                 <div class="quora-spinner-ring"></div>
-                <h3 id="quora-loading-message"><?php _e( 'Téléversement en cours...', 'quora-importer' ); ?></h3>
-                <p id="quora-loading-subtext"><?php _e( 'Veuillez patienter pendant le traitement du fichier.', 'quora-importer' ); ?></p>
+                <h3 id="quora-loading-message"><?php esc_html_e( 'Uploading...', 'quora-importer' ); ?></h3>
+                <p id="quora-loading-subtext"><?php esc_html_e( 'Please wait while the file is being processed.', 'quora-importer' ); ?></p>
             </div>
         </div>
 
         <!-- STEP 2: CONFIGURATION OPTIONS SCREEN -->
         <div id="quora-step-options" class="quora-step">
-            <h3 class="step-title"><?php _e( 'Configuration de l\'importation', 'quora-importer' ); ?></h3>
+            <h3 class="step-title"><?php esc_html_e( 'Import Configuration', 'quora-importer' ); ?></h3>
             <p class="step-intro" id="quora-import-stats-summary"></p>
             
             <form id="quora-import-options-form">
                 <input type="hidden" id="quora-session-id" name="session_id" value="" />
                 
                 <div class="quora-form-section">
-                    <h4><?php _e( '1. Paramètres des articles', 'quora-importer' ); ?></h4>
+                    <h4><?php esc_html_e( '1. Post Settings', 'quora-importer' ); ?></h4>
                     <div class="quora-form-row">
-                        <label for="quora-post-author"><?php _e( 'Auteur des articles importés :', 'quora-importer' ); ?></label>
+                        <label for="quora-post-author"><?php esc_html_e( 'Author for imported posts:', 'quora-importer' ); ?></label>
                         <select name="author_id" id="quora-post-author">
                             <?php 
                             $users = get_users();
@@ -154,64 +182,64 @@ class Quora_Importer {
                         </select>
                     </div>
                     <div class="quora-form-row">
-                        <label for="quora-min-chars-publish"><?php _e( 'Publier si le texte fait plus de :', 'quora-importer' ); ?></label>
+                        <label for="quora-min-chars-publish"><?php esc_html_e( 'Publish if text is longer than:', 'quora-importer' ); ?></label>
                         <div>
                             <input type="number" id="quora-min-chars-publish" name="min_chars_publish" value="500" min="0" />
-                            <span class="help-desc" style="display: block; margin-top: 4px;"><?php _e( 'caractères (les originaux publiés plus courts, ou brouillons, seront importés en Brouillon).', 'quora-importer' ); ?></span>
+                            <span class="help-desc" style="display: block; margin-top: 4px;"><?php esc_html_e( 'characters (shorter published originals, or drafts, will be imported as Draft).', 'quora-importer' ); ?></span>
                         </div>
                     </div>
                     
                     <div class="quora-form-row">
-                        <label for="quora-link-position"><?php _e( 'Lien vers Quora :', 'quora-importer' ); ?></label>
+                        <label for="quora-link-position"><?php esc_html_e( 'Link to Quora:', 'quora-importer' ); ?></label>
                         <select name="link_position" id="quora-link-position">
-                            <option value="none" selected><?php _e( 'Non', 'quora-importer' ); ?></option>
-                            <option value="top"><?php _e( 'En haut de l\'article', 'quora-importer' ); ?></option>
-                            <option value="bottom"><?php _e( 'En bas de l\'article', 'quora-importer' ); ?></option>
+                            <option value="none" selected><?php esc_html_e( 'No', 'quora-importer' ); ?></option>
+                            <option value="top"><?php esc_html_e( 'At the top of the post', 'quora-importer' ); ?></option>
+                            <option value="bottom"><?php esc_html_e( 'At the bottom of the post', 'quora-importer' ); ?></option>
                         </select>
                     </div>
                     
                     <div class="quora-form-row" id="quora-link-template-row" style="display: none;">
-                        <label for="quora-link-template"><?php _e( 'Format du lien (HTML) :', 'quora-importer' ); ?></label>
+                        <label for="quora-link-template"><?php esc_html_e( 'Link Template (HTML):', 'quora-importer' ); ?></label>
                         <input type="text" id="quora-link-template" name="link_template" value='<a href="$link$" target="_blank">voir sur Quora </a >' style="width: 100%; max-width: 400px;" />
                     </div>
                 </div>
                 
                 <div class="quora-form-section">
-                    <h4><?php _e( '2. Types de contenu à importer', 'quora-importer' ); ?></h4>
+                    <h4><?php esc_html_e( '2. Content Types to Import', 'quora-importer' ); ?></h4>
                     <div id="quora-content-types-checkboxes" class="quora-checkbox-grid">
                         <!-- Filled dynamically by JavaScript -->
                     </div>
                 </div>
                 
                 <div class="quora-form-section">
-                    <h4><?php _e( '3. Médias et Images', 'quora-importer' ); ?></h4>
+                    <h4><?php esc_html_e( '3. Media & Images', 'quora-importer' ); ?></h4>
                     <div class="quora-form-row checkbox-row">
                         <input type="checkbox" name="import_images" id="quora-import-images" value="1" checked />
                         <label for="quora-import-images">
-                            <strong><?php _e( 'Téléverser les images dans la bibliothèque WordPress', 'quora-importer' ); ?></strong>
-                            <span class="help-desc"><?php _e( 'Extrait les images locales de l\'archive ZIP et les insère proprement dans vos médias.', 'quora-importer' ); ?></span>
+                            <strong><?php esc_html_e( 'Upload images to the WordPress Media Library', 'quora-importer' ); ?></strong>
+                            <span class="help-desc"><?php esc_html_e( 'Extracts local images from the ZIP archive and inserts them cleanly into your media library.', 'quora-importer' ); ?></span>
                         </label>
                     </div>
                     
                     <div class="quora-form-row checkbox-row">
                         <input type="checkbox" name="set_featured" id="quora-set-featured" value="1" checked />
                         <label for="quora-set-featured">
-                            <strong><?php _e( 'Définir la première image comme image mise en avant', 'quora-importer' ); ?></strong>
-                            <span class="help-desc"><?php _e( 'Assigne automatiquement la première image trouvée dans l\'article comme vignette.', 'quora-importer' ); ?></span>
+                            <strong><?php esc_html_e( 'Set first image as featured image', 'quora-importer' ); ?></strong>
+                            <span class="help-desc"><?php esc_html_e( 'Automatically assigns the first image found in the post as the thumbnail.', 'quora-importer' ); ?></span>
                         </label>
                     </div>
                 </div>
                 
                 <div class="quora-form-actions">
-                    <button type="button" class="button button-secondary button-large" id="quora-cancel-to-upload"><?php _e( 'Annuler', 'quora-importer' ); ?></button>
-                    <button type="submit" class="button button-primary button-large" id="quora-submit-import"><?php _e( 'Lancer l\'importation', 'quora-importer' ); ?></button>
+                    <button type="button" class="button button-secondary button-large" id="quora-cancel-to-upload"><?php esc_html_e( 'Cancel', 'quora-importer' ); ?></button>
+                    <button type="submit" class="button button-primary button-large" id="quora-submit-import"><?php esc_html_e( 'Start Import', 'quora-importer' ); ?></button>
                 </div>
             </form>
         </div>
         
         <!-- STEP 3: PROGRESS SCREEN -->
         <div id="quora-step-progress" class="quora-step">
-            <h3 class="step-title" id="quora-progress-title"><?php _e( 'Importation en cours...', 'quora-importer' ); ?></h3>
+            <h3 class="step-title" id="quora-progress-title"><?php esc_html_e( 'Importing...', 'quora-importer' ); ?></h3>
             
             <!-- Running status elements -->
             <div id="quora-progress-running-section">
@@ -231,39 +259,39 @@ class Quora_Importer {
                 <div class="quora-summary-success-icon" style="margin: 10px 0 20px 0; text-align: center;">
                     <span class="dashicons dashicons-saved" style="font-size: 60px; width: 60px; height: 60px;"></span>
                 </div>
-                <p class="step-intro" style="text-align: center; margin-bottom: 20px;"><?php _e( 'Votre blog Quora a été importé avec succès. Voici le résumé :', 'quora-importer' ); ?></p>
+                <p class="step-intro" style="text-align: center; margin-bottom: 20px;"><?php esc_html_e( 'Your Quora blog has been successfully imported. Here is the summary:', 'quora-importer' ); ?></p>
                 
                 <div class="quora-summary-stats-grid" style="margin-bottom: 25px;">
                     <div class="summary-stat-card">
                         <span class="stat-num" id="summary-stat-imported">0</span>
-                        <span class="stat-label"><?php _e( 'Articles importés', 'quora-importer' ); ?></span>
+                        <span class="stat-label"><?php esc_html_e( 'Imported Posts', 'quora-importer' ); ?></span>
                     </div>
                     <div class="summary-stat-card">
                         <span class="stat-num" id="summary-stat-skipped">0</span>
-                        <span class="stat-label"><?php _e( 'Articles ignorés', 'quora-importer' ); ?></span>
+                        <span class="stat-label"><?php esc_html_e( 'Skipped Posts', 'quora-importer' ); ?></span>
                     </div>
                     <div class="summary-stat-card">
                         <span class="stat-num" id="summary-stat-images">0</span>
-                        <span class="stat-label"><?php _e( 'Images téléversées', 'quora-importer' ); ?></span>
+                        <span class="stat-label"><?php esc_html_e( 'Uploaded Images', 'quora-importer' ); ?></span>
                     </div>
                 </div>
             </div>
             
             <div class="quora-console-log-header">
-                <span><?php _e( 'Journal d\'importation', 'quora-importer' ); ?></span>
-                <span class="status-indicator live pulsing" id="quora-log-status-indicator"><?php _e( 'En direct', 'quora-importer' ); ?></span>
+                <span><?php esc_html_e( 'Import Log', 'quora-importer' ); ?></span>
+                <span class="status-indicator live pulsing" id="quora-log-status-indicator"><?php esc_html_e( 'Live', 'quora-importer' ); ?></span>
             </div>
             <div class="quora-console-log" id="quora-console-log">
                 <!-- Dynamically populated by AJAX logs -->
             </div>
             
             <div class="quora-form-actions" id="quora-progress-actions">
-                <button type="button" class="button button-link-delete" id="quora-abort-import"><?php _e( 'Arrêter l\'importation', 'quora-importer' ); ?></button>
+                <button type="button" class="button button-link-delete" id="quora-abort-import"><?php esc_html_e( 'Stop Import', 'quora-importer' ); ?></button>
             </div>
             
             <div class="quora-form-actions" id="quora-finished-actions" style="display: none; justify-content: center; gap: 15px; margin-top: 20px;">
-                <a href="<?php echo admin_url( 'edit.php' ); ?>" class="button button-primary button-large"><?php _e( 'Voir tous les articles', 'quora-importer' ); ?></a>
-                <a href="<?php echo admin_url( 'admin.php?import=quora' ); ?>" class="button button-secondary button-large"><?php _e( 'Importer un autre fichier', 'quora-importer' ); ?></a>
+                <a href="<?php echo esc_url( admin_url( 'edit.php' ) ); ?>" class="button button-primary button-large"><?php esc_html_e( 'View All Posts', 'quora-importer' ); ?></a>
+                <a href="<?php echo esc_url( admin_url( 'admin.php?import=quora' ) ); ?>" class="button button-secondary button-large"><?php esc_html_e( 'Import Another File', 'quora-importer' ); ?></a>
             </div>
         </div>
         <?php
@@ -276,41 +304,48 @@ class Quora_Importer {
         check_ajax_referer( 'quora-import-nonce', 'nonce' );
         
         if ( ! current_user_can( 'import' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permissions insuffisantes.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'Insufficient permissions.', 'quora-importer' ) ) );
         }
         
         if ( empty( $_FILES['file'] ) ) {
-            wp_send_json_error( array( 'message' => __( 'Aucun fichier reçu.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'No file received.', 'quora-importer' ) ) );
         }
         
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- $_FILES is validated below via checking file extension and using WordPress APIs.
         $file = $_FILES['file'];
         $ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
         
         if ( ! in_array( $ext, array( 'zip', 'html' ) ) ) {
-            wp_send_json_error( array( 'message' => __( 'Extension de fichier invalide. Utilisez .zip ou .html.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'Invalid file extension. Please use .zip or .html.', 'quora-importer' ) ) );
+        }
+        
+        global $wp_filesystem;
+        if ( empty( $wp_filesystem ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            WP_Filesystem();
         }
         
         // Setup temp folder inside WordPress uploads
         $upload_dir = wp_upload_dir();
         $temp_root = $upload_dir['basedir'] . '/quora-importer-temp';
         
-        if ( ! file_exists( $temp_root ) ) {
+        if ( ! $wp_filesystem->exists( $temp_root ) ) {
             wp_mkdir_p( $temp_root );
             // Security: add index.php
-            file_put_contents( $temp_root . '/index.php', '<?php // Silence is golden' );
+            $wp_filesystem->put_contents( $temp_root . '/index.php', '<?php // Silence is golden' );
         }
         
         $session_id = uniqid( 'session_' );
         $session_dir = $temp_root . '/' . $session_id;
         
         if ( ! wp_mkdir_p( $session_dir ) ) {
-            wp_send_json_error( array( 'message' => __( 'Impossible de créer le dossier temporaire.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'Could not create temporary directory.', 'quora-importer' ) ) );
         }
         
-        // Move uploaded file to session dir
+        // Copy uploaded file to session dir
         $uploaded_file_path = $session_dir . '/' . basename( $file['name'] );
-        if ( ! move_uploaded_file( $file['tmp_name'], $uploaded_file_path ) ) {
-            wp_send_json_error( array( 'message' => __( 'Échec du déplacement du fichier téléversé.', 'quora-importer' ) ) );
+        if ( ! $wp_filesystem->copy( $file['tmp_name'], $uploaded_file_path ) ) {
+            wp_send_json_error( array( 'message' => __( 'Failed to move uploaded file.', 'quora-importer' ) ) );
         }
         
         $has_images = false;
@@ -319,29 +354,27 @@ class Quora_Importer {
         
         if ( 'zip' === $ext ) {
             // Unzip the file
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-            WP_Filesystem();
-            
             $unzip_result = unzip_file( $uploaded_file_path, $session_dir );
             
             // Delete the zip to save space
-            @unlink( $uploaded_file_path );
+            wp_delete_file( $uploaded_file_path );
             
             if ( is_wp_error( $unzip_result ) ) {
                 $this->recursive_rmdir( $session_dir );
-                wp_send_json_error( array( 'message' => __( 'Échec de la décompression ZIP : ', 'quora-importer' ) . $unzip_result->get_error_message() ) );
+                // translators: %s: error message.
+                wp_send_json_error( array( 'message' => __( 'ZIP extraction failed: ', 'quora-importer' ) . $unzip_result->get_error_message() ) );
             }
             
             // Search for index.html recursively in extracted folder
             $index_html_path = $this->find_file_recursive( $session_dir, 'index.html' );
             if ( $index_html_path ) {
                 $extracted_dir = dirname( $index_html_path );
-                if ( file_exists( $extracted_dir . '/images' ) && is_dir( $extracted_dir . '/images' ) ) {
+                if ( $wp_filesystem->exists( $extracted_dir . '/images' ) && $wp_filesystem->is_dir( $extracted_dir . '/images' ) ) {
                     $has_images = true;
                 }
             } else {
                 $this->recursive_rmdir( $session_dir );
-                wp_send_json_error( array( 'message' => __( 'Impossible de trouver le fichier index.html dans le fichier ZIP.', 'quora-importer' ) ) );
+                wp_send_json_error( array( 'message' => __( 'Could not find index.html inside the ZIP archive.', 'quora-importer' ) ) );
             }
         } else {
             $index_html_path = $uploaded_file_path;
@@ -351,7 +384,7 @@ class Quora_Importer {
         $posts = $this->parse_html_file( $index_html_path );
         if ( false === $posts || empty( $posts ) ) {
             $this->recursive_rmdir( $session_dir );
-            wp_send_json_error( array( 'message' => __( 'Aucun article éligible n\'a été trouvé dans le fichier index.html.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'No eligible posts found inside index.html.', 'quora-importer' ) ) );
         }
         
         // Get statistics
@@ -375,7 +408,7 @@ class Quora_Importer {
             'posts'         => $posts
         );
         
-        file_put_contents( $session_dir . '/manifest.json', wp_json_encode( $manifest ) );
+        $wp_filesystem->put_contents( $session_dir . '/manifest.json', wp_json_encode( $manifest ) );
         
         wp_send_json_success( array(
             'session_id'     => $session_id,
@@ -393,35 +426,41 @@ class Quora_Importer {
         check_ajax_referer( 'quora-import-nonce', 'nonce' );
         
         if ( ! current_user_can( 'import' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permissions insuffisantes.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'Insufficient permissions.', 'quora-importer' ) ) );
         }
         
-        $session_id = isset( $_POST['session_id'] ) ? sanitize_text_field( $_POST['session_id'] ) : '';
-        $item_index = isset( $_POST['item_index'] ) ? intval( $_POST['item_index'] ) : -1;
-        $author_id = isset( $_POST['author_id'] ) ? intval( $_POST['author_id'] ) : get_current_user_id();
-        $min_chars_publish = isset( $_POST['min_chars_publish'] ) ? intval( $_POST['min_chars_publish'] ) : 500;
+        $session_id = isset( $_POST['session_id'] ) ? sanitize_text_field( wp_unslash( $_POST['session_id'] ) ) : '';
+        $item_index = isset( $_POST['item_index'] ) ? intval( wp_unslash( $_POST['item_index'] ) ) : -1;
+        $author_id = isset( $_POST['author_id'] ) ? intval( wp_unslash( $_POST['author_id'] ) ) : get_current_user_id();
+        $min_chars_publish = isset( $_POST['min_chars_publish'] ) ? intval( wp_unslash( $_POST['min_chars_publish'] ) ) : 500;
         $import_images = ! empty( $_POST['import_images'] );
         $set_featured = ! empty( $_POST['set_featured'] );
-        $link_position = isset( $_POST['link_position'] ) ? sanitize_text_field( $_POST['link_position'] ) : 'none';
-        $link_template = isset( $_POST['link_template'] ) ? wp_unslash( $_POST['link_template'] ) : '';
+        $link_position = isset( $_POST['link_position'] ) ? sanitize_text_field( wp_unslash( $_POST['link_position'] ) ) : 'none';
+        $link_template = isset( $_POST['link_template'] ) ? wp_kses_post( wp_unslash( $_POST['link_template'] ) ) : '';
         
-        $enabled_types = isset( $_POST['enabled_types'] ) ? array_map( 'sanitize_text_field', $_POST['enabled_types'] ) : array();
+        $enabled_types = isset( $_POST['enabled_types'] ) ? array_map( 'sanitize_text_field', wp_unslash( $_POST['enabled_types'] ) ) : array();
         
         if ( empty( $session_id ) || $item_index < 0 ) {
-            wp_send_json_error( array( 'message' => __( 'Paramètres d\'importation invalides.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'Invalid import parameters.', 'quora-importer' ) ) );
         }
         
         $upload_dir = wp_upload_dir();
         $session_dir = $upload_dir['basedir'] . '/quora-importer-temp/' . $session_id;
         $manifest_file = $session_dir . '/manifest.json';
         
-        if ( ! file_exists( $manifest_file ) ) {
-            wp_send_json_error( array( 'message' => __( 'Session d\'importation expirée ou introuvable.', 'quora-importer' ) ) );
+        global $wp_filesystem;
+        if ( empty( $wp_filesystem ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            WP_Filesystem();
         }
         
-        $manifest = json_decode( file_get_contents( $manifest_file ), true );
+        if ( ! $wp_filesystem->exists( $manifest_file ) ) {
+            wp_send_json_error( array( 'message' => __( 'Import session expired or not found.', 'quora-importer' ) ) );
+        }
+        
+        $manifest = json_decode( $wp_filesystem->get_contents( $manifest_file ), true );
         if ( ! isset( $manifest['posts'][$item_index] ) ) {
-            wp_send_json_error( array( 'message' => __( 'Article introuvable dans la session.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'Post not found in session.', 'quora-importer' ) ) );
         }
         
         $post = $manifest['posts'][$item_index];
@@ -432,7 +471,8 @@ class Quora_Importer {
             wp_send_json_success( array(
                 'status'  => 'skipped',
                 'title'   => $this->get_post_title( $post, $type ),
-                'message' => sprintf( __( 'Type de post "%s" ignoré selon vos filtres.', 'quora-importer' ), $type )
+                // translators: %s: post type.
+                'message' => sprintf( __( 'Post type "%s" skipped based on your filters.', 'quora-importer' ), $type )
             ) );
         }
         
@@ -440,13 +480,23 @@ class Quora_Importer {
         $title = $this->get_post_title( $post, $type );
         $title = preg_replace( '/\[\/?math\]/i', '$', $title );
         
-        // Check if post already exists (avoid duplicates)
-        $existing = get_page_by_title( $title, OBJECT, 'post' );
+        // Check if post already exists (avoid duplicates) using WP_Query
+        $existing_query = new WP_Query( array(
+            'post_type'              => 'post',
+            'title'                  => $title,
+            'posts_per_page'         => 1,
+            'no_found_rows'          => true,
+            'ignore_sticky_posts'    => true,
+            'update_post_term_cache' => false,
+            'update_post_meta_cache' => false,
+        ) );
+        $existing = $existing_query->have_posts() ? $existing_query->posts[0] : null;
+        
         if ( $existing ) {
             wp_send_json_success( array(
                 'status'  => 'skipped',
                 'title'   => $title,
-                'message' => __( 'Cet article semble déjà exister dans WordPress.', 'quora-importer' )
+                'message' => __( 'This post already exists in WordPress.', 'quora-importer' )
             ) );
         }
         
@@ -454,12 +504,13 @@ class Quora_Importer {
         $raw_date = ! empty( $post['Creation time'] ) ? $post['Creation time'] : '';
         $timestamp = $this->parse_quora_date( $raw_date );
         
-        $post_date = date( 'Y-m-d H:i:s', $timestamp );
+        $post_date = wp_date( 'Y-m-d H:i:s', $timestamp );
         $post_date_gmt = gmdate( 'Y-m-d H:i:s', $timestamp );
         
         // Clean URL redirects in HTML
         $content = ! empty( $post['Content'] ) ? $post['Content'] : '';
         $content = preg_replace( '/\[\/?math\]/i', '$', $content );
+        $content = $this->clean_html_newlines( $content );
         $content = $this->process_html_links( $content );
         
         // Set post status based on condition
@@ -512,7 +563,8 @@ class Quora_Importer {
         $post_id = wp_insert_post( $post_data );
         
         if ( is_wp_error( $post_id ) ) {
-            wp_send_json_error( array( 'message' => sprintf( __( 'Échec de création du post : %s', 'quora-importer' ), $post_id->get_error_message() ) ) );
+            // translators: %s: error message.
+            wp_send_json_error( array( 'message' => sprintf( __( 'Failed to create post: %s', 'quora-importer' ), $post_id->get_error_message() ) ) );
         }
         
         // Associate attachments with the post
@@ -570,7 +622,8 @@ class Quora_Importer {
             'title'           => $title,
             'post_id'         => $post_id,
             'images_imported' => $images_imported,
-            'message'         => sprintf( __( 'Article importé avec succès (ID: %d, images: %d).', 'quora-importer' ), $post_id, $images_imported )
+            // translators: 1: post ID, 2: number of images imported.
+            'message'         => sprintf( __( 'Post imported successfully (ID: %1$d, images: %2$d).', 'quora-importer' ), $post_id, $images_imported )
         ) );
     }
     
@@ -581,13 +634,13 @@ class Quora_Importer {
         check_ajax_referer( 'quora-import-nonce', 'nonce' );
         
         if ( ! current_user_can( 'import' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permissions insuffisantes.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'Insufficient permissions.', 'quora-importer' ) ) );
         }
         
-        $session_id = isset( $_POST['session_id'] ) ? sanitize_text_field( $_POST['session_id'] ) : '';
+        $session_id = isset( $_POST['session_id'] ) ? sanitize_text_field( wp_unslash( $_POST['session_id'] ) ) : '';
         
         if ( empty( $session_id ) ) {
-            wp_send_json_error( array( 'message' => __( 'Session d\'importation invalide.', 'quora-importer' ) ) );
+            wp_send_json_error( array( 'message' => __( 'Invalid import session.', 'quora-importer' ) ) );
         }
         
         $upload_dir = wp_upload_dir();
@@ -595,9 +648,9 @@ class Quora_Importer {
         
         if ( file_exists( $session_dir ) ) {
             $this->recursive_rmdir( $session_dir );
-            wp_send_json_success( array( 'message' => __( 'Nettoyage terminé avec succès.', 'quora-importer' ) ) );
+            wp_send_json_success( array( 'message' => __( 'Cleanup completed successfully.', 'quora-importer' ) ) );
         } else {
-            wp_send_json_success( array( 'message' => __( 'Aucun dossier à nettoyer.', 'quora-importer' ) ) );
+            wp_send_json_success( array( 'message' => __( 'No folder to clean up.', 'quora-importer' ) ) );
         }
     }
     
@@ -623,11 +676,17 @@ class Quora_Importer {
      * Parses the Quora index.html and returns structured post array
      */
     public function parse_html_file( $file_path ) {
-        if ( ! file_exists( $file_path ) ) {
+        global $wp_filesystem;
+        if ( empty( $wp_filesystem ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            WP_Filesystem();
+        }
+        
+        if ( ! $wp_filesystem->exists( $file_path ) ) {
             return false;
         }
         
-        $html = file_get_contents( $file_path );
+        $html = $wp_filesystem->get_contents( $file_path );
         
         $dom = new DOMDocument();
         libxml_use_internal_errors( true );
@@ -744,7 +803,7 @@ class Quora_Importer {
                 }
             }
             
-            $text = trim( strip_tags( $content ) );
+            $text = trim( wp_strip_all_tags( $content ) );
             $text = preg_replace( '/\s+/', ' ', $text );
             if ( mb_strlen( $text ) > 80 ) {
                 return mb_substr( $text, 0, 80 ) . '...';
@@ -796,7 +855,7 @@ class Quora_Importer {
         foreach ( $anchors as $a ) {
             $href = $a->getAttribute( 'href' );
             if ( ! empty( $href ) && strpos( $href, 'quora.com/_/redirect' ) !== false ) {
-                $query = parse_url( $href, PHP_URL_QUERY );
+                $query = wp_parse_url( $href, PHP_URL_QUERY );
                 if ( $query ) {
                     $params = array();
                     parse_str( $query, $params );
@@ -859,6 +918,11 @@ class Quora_Importer {
         // Cache to prevent duplicate uploads in the same post/session
         static $session_images_cache = array();
         
+        global $wp_filesystem;
+        if ( empty( $wp_filesystem ) ) {
+            WP_Filesystem();
+        }
+        
         foreach ( $imgs as $img ) {
             $src = $img->getAttribute( 'src' );
             if ( empty( $src ) ) {
@@ -899,7 +963,7 @@ class Quora_Importer {
                 $tmp_dir = get_temp_dir();
                 $tmp_file = $tmp_dir . uniqid( 'quora_img_' ) . '_' . $filename . $ext;
                 
-                if ( copy( $local_path, $tmp_file ) ) {
+                if ( $wp_filesystem->copy( $local_path, $tmp_file ) ) {
                     $file_array = array(
                         'name'     => $filename . $ext,
                         'tmp_name' => $tmp_file,
@@ -909,8 +973,8 @@ class Quora_Importer {
                     $upload_dir_filter = function( $uploads ) use ( $post_date ) {
                         $timestamp = strtotime( $post_date );
                         if ( $timestamp ) {
-                            $year = date( 'Y', $timestamp );
-                            $month = date( 'm', $timestamp );
+                            $year = wp_date( 'Y', $timestamp );
+                            $month = wp_date( 'm', $timestamp );
                             $uploads['subdir'] = '/' . $year . '/' . $month;
                             $uploads['path']   = $uploads['basedir'] . $uploads['subdir'];
                             $uploads['url']    = $uploads['baseurl'] . $uploads['subdir'];
@@ -940,7 +1004,7 @@ class Quora_Importer {
                         );
                         $count++;
                     } else {
-                        @unlink( $tmp_file );
+                        $wp_filesystem->delete( $tmp_file );
                     }
                 }
             }
@@ -998,24 +1062,25 @@ class Quora_Importer {
             }
         }
         
-        // Fallback: check file signature (magic numbers)
-        $handle = @fopen( $path, 'rb' );
-        if ( $handle ) {
-            $bytes = fread( $handle, 12 );
-            fclose( $handle );
-            if ( false !== $bytes ) {
-                if ( strpos( $bytes, "\xff\xd8\xff" ) === 0 ) {
-                    return '.jpg';
-                }
-                if ( strpos( $bytes, "\x89PNG\r\n\x1a\n" ) === 0 ) {
-                    return '.png';
-                }
-                if ( strpos( $bytes, 'GIF87a' ) === 0 || strpos( $bytes, 'GIF89a' ) === 0 ) {
-                    return '.gif';
-                }
-                if ( strpos( $bytes, 'RIFF' ) === 0 && strpos( substr( $bytes, 8, 4 ), 'WEBP' ) === 0 ) {
-                    return '.webp';
-                }
+        // Fallback: check file signature (magic numbers) using WP_Filesystem
+        global $wp_filesystem;
+        if ( empty( $wp_filesystem ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            WP_Filesystem();
+        }
+        $bytes = $wp_filesystem->get_contents( $path );
+        if ( $bytes ) {
+            if ( strpos( $bytes, "\xff\xd8\xff" ) === 0 ) {
+                return '.jpg';
+            }
+            if ( strpos( $bytes, "\x89PNG\r\n\x1a\n" ) === 0 ) {
+                return '.png';
+            }
+            if ( strpos( $bytes, 'GIF87a' ) === 0 || strpos( $bytes, 'GIF89a' ) === 0 ) {
+                return '.gif';
+            }
+            if ( strpos( $bytes, 'RIFF' ) === 0 && strpos( substr( $bytes, 8, 4 ), 'WEBP' ) === 0 ) {
+                return '.webp';
             }
         }
         
@@ -1204,7 +1269,13 @@ class Quora_Importer {
         $destination_filename = wp_unique_filename( $upload_dir['path'], $filename );
         $destination = $upload_dir['path'] . '/' . $destination_filename;
 
-        if ( ! copy( $image_path, $destination ) ) {
+        global $wp_filesystem;
+        if ( empty( $wp_filesystem ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            WP_Filesystem();
+        }
+
+        if ( ! $wp_filesystem->copy( $image_path, $destination ) ) {
             return 0;
         }
 
@@ -1231,21 +1302,65 @@ class Quora_Importer {
     }
 
     /**
+     * Clean newlines inside HTML text nodes, converting them to single spaces.
+     */
+    private function clean_html_newlines( $content ) {
+        if ( empty( $content ) ) {
+            return '';
+        }
+        
+        $doc = new DOMDocument();
+        libxml_use_internal_errors( true );
+        // Use XML encoding header to prevent character encoding issues with loadHTML
+        $doc->loadHTML( '<?xml encoding="UTF-8"><html><body>' . $content . '</body></html>' );
+        libxml_clear_errors();
+        
+        // Find all text nodes
+        $xpath = new DOMXPath( $doc );
+        $text_nodes = $xpath->query( '//text()' );
+        $changed = false;
+        
+        foreach ( $text_nodes as $node ) {
+            // Skip text nodes inside <pre> or <code> tags
+            $parent = $node->parentNode;
+            if ( $parent && in_array( strtolower( $parent->nodeName ), array( 'pre', 'code' ) ) ) {
+                continue;
+            }
+            
+            $text = $node->nodeValue;
+            if ( ! empty( $text ) ) {
+                // Replace newlines and any surrounding whitespace with a single space
+                $new_text = preg_replace( '/\s*\n\s*/u', ' ', $text );
+                if ( $new_text !== $text ) {
+                    $node->nodeValue = $new_text;
+                    $changed = true;
+                }
+            }
+        }
+        
+        if ( $changed ) {
+            $body = $doc->getElementsByTagName( 'body' )->item( 0 );
+            $new_content = '';
+            foreach ( $body->childNodes as $child ) {
+                $new_content .= $doc->saveHTML( $child );
+            }
+            return $new_content;
+        }
+        
+        return $content;
+    }
+
+    /**
      * Helper to delete a folder and all its contents recursively
      */
     private function recursive_rmdir( $dir ) {
+        global $wp_filesystem;
+        if ( empty( $wp_filesystem ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            WP_Filesystem();
+        }
         if ( is_dir( $dir ) ) {
-            $objects = scandir( $dir );
-            foreach ( $objects as $object ) {
-                if ( $object !== '.' && $object !== '..' ) {
-                    if ( is_dir( $dir . '/' . $object ) && ! is_link( $dir . '/' . $object ) ) {
-                        $this->recursive_rmdir( $dir . '/' . $object );
-                    } else {
-                        @unlink( $dir . '/' . $object );
-                    }
-                }
-            }
-            @rmdir( $dir );
+            $wp_filesystem->delete( $dir, true );
         }
     }
 }

@@ -82,7 +82,7 @@ jQuery(document).ready(function($) {
     function handleFileUpload(file) {
         const ext = file.name.split('.').pop().toLowerCase();
         if (ext !== 'zip' && ext !== 'html') {
-            alert(quoraImporter.strings.error_upload + ' Veuillez choisir un fichier .zip ou .html.');
+            alert(quoraImporter.strings.select_valid_file);
             return;
         }
         
@@ -149,11 +149,11 @@ jQuery(document).ready(function($) {
         totalPosts = data.total_posts;
         
         // Fill statistics
-        let summaryText = `Nous avons trouvé <strong>${data.total_posts} articles</strong> dans votre fichier d'exportation.`;
+        let summaryText = quoraImporter.strings.posts_found.replace('%d', data.total_posts);
         if (data.has_images) {
-            summaryText += ' Des images associées ont été détectées et pourront être importées.';
+            summaryText += quoraImporter.strings.images_found;
         } else {
-            summaryText += ' Aucun dossier d\'images détecté (importation du texte uniquement).';
+            summaryText += quoraImporter.strings.no_images_found;
         }
         $statsSummary.html(summaryText);
         
@@ -167,7 +167,7 @@ jQuery(document).ready(function($) {
                 }
             });
             if (authorMatched) {
-                addLog(`Auteur suggéré "${data.guessed_author}" pré-sélectionné.`, 'info');
+                addLog(quoraImporter.strings.suggested_author.replace('%s', data.guessed_author), 'info');
             }
         }
         
@@ -236,7 +236,7 @@ jQuery(document).ready(function($) {
         });
         
         if (enabledTypes.length === 0) {
-            alert('Veuillez sélectionner au moins un type de contenu à importer.');
+            alert(quoraImporter.strings.select_content_type);
             return;
         }
         
@@ -249,13 +249,13 @@ jQuery(document).ready(function($) {
         isImporting = true;
         
         // Reset elements in case of re-import
-        $('#quora-progress-title').text('Importation en cours...');
+        $('#quora-progress-title').text(quoraImporter.strings.importing);
         $('#quora-progress-running-section').show();
         $('#quora-progress-finished-section').hide();
         $('#quora-progress-actions').show();
         $('#quora-finished-actions').hide();
-        $('#quora-abort-import').prop('disabled', false).text('Arrêter l\'importation');
-        $('#quora-log-status-indicator').addClass('live pulsing').removeClass('finished').text('En direct');
+        $('#quora-abort-import').prop('disabled', false).text(quoraImporter.strings.stop_import);
+        $('#quora-log-status-indicator').addClass('live pulsing').removeClass('finished').text(quoraImporter.strings.live);
         
         $console.empty();
         $progressBar.css('width', '0%');
@@ -263,7 +263,7 @@ jQuery(document).ready(function($) {
         $progressFraction.text('0 / ' + totalPosts);
         
         showStep('quora-step-progress');
-        addLog(`Début de l'importation de ${totalPosts} articles...`, 'info');
+        addLog(quoraImporter.strings.import_started.replace('%d', totalPosts), 'info');
         
         // Start sequential AJAX loop
         importNextItem();
@@ -271,7 +271,7 @@ jQuery(document).ready(function($) {
     
     function importNextItem() {
         if (isAborted) {
-            addLog('Importation interrompue par l\'utilisateur.', 'warning');
+            addLog(quoraImporter.strings.import_aborted, 'warning');
             cleanupSession(true);
             return;
         }
@@ -310,10 +310,12 @@ jQuery(document).ready(function($) {
                     } else if (data.status === 'skipped') {
                         skippedCount++;
                         // Log skipped items as warnings so the user knows why they were ignored
-                        addLog(`[IGNORÉ] #${currentIndex + 1} : "${data.title}" - ${data.message}`, 'warning');
+                        let logMsg = quoraImporter.strings.skipped_log.replace('%d', currentIndex + 1).replace('%s', data.title).replace('%s', data.message);
+                        addLog(logMsg, 'warning');
                     }
                 } else {
-                    addLog(`[ERREUR] #${currentIndex + 1} : ${response.data.message}`, 'error');
+                    let logMsg = quoraImporter.strings.error_log.replace('%d', currentIndex + 1).replace('%s', response.data.message);
+                    addLog(logMsg, 'error');
                 }
                 
                 // Update progress bar
@@ -326,7 +328,7 @@ jQuery(document).ready(function($) {
                 setTimeout(importNextItem, 50);
             },
             error: function() {
-                addLog(`[ERREUR] Échec réseau lors de l'importation de l'article #${currentIndex + 1}. Tentative de poursuite...`, 'error');
+                addLog(quoraImporter.strings.network_error.replace('%d', currentIndex + 1), 'error');
                 currentIndex++;
                 setTimeout(importNextItem, 100);
             }
@@ -336,9 +338,9 @@ jQuery(document).ready(function($) {
     // Abort button
     $('#quora-abort-import').on('click', function(e) {
         e.preventDefault();
-        if (confirm('Voulez-vous vraiment arrêter l\'importation en cours ?')) {
+        if (confirm(quoraImporter.strings.abort_confirm)) {
             isAborted = true;
-            $(this).prop('disabled', true).text('Arrêt en cours...');
+            $(this).prop('disabled', true).text(quoraImporter.strings.aborting);
         }
     });
     
@@ -356,7 +358,8 @@ jQuery(document).ready(function($) {
        ========================================================================== */
     function finishImport() {
         isImporting = false;
-        addLog(`Importation terminée ! ${importedCount} articles importés, ${skippedCount} ignorés. Nettoyage en cours...`, 'info');
+        let logMsg = quoraImporter.strings.import_finished.replace('%d', importedCount).replace('%d', skippedCount);
+        addLog(logMsg, 'info');
         
         cleanupSession(false);
     }
@@ -381,7 +384,7 @@ jQuery(document).ready(function($) {
                     showStep('quora-step-upload');
                 } else {
                     // Update stats on Step 3 Summary
-                    $('#quora-progress-title').text('Importation terminée !');
+                    $('#quora-progress-title').text(quoraImporter.strings.completed);
                     $('#quora-progress-running-section').hide();
                     $('#quora-progress-actions').hide();
                     
@@ -396,7 +399,7 @@ jQuery(document).ready(function($) {
                     $('#quora-log-status-indicator')
                         .removeClass('live pulsing')
                         .addClass('finished')
-                        .text('Terminé');
+                        .text(quoraImporter.strings.finished);
                 }
             },
             error: function() {
@@ -404,7 +407,7 @@ jQuery(document).ready(function($) {
                     showStep('quora-step-upload');
                 } else {
                     // Fail gracefully but show final screen controls
-                    $('#quora-progress-title').text('Importation terminée !');
+                    $('#quora-progress-title').text(quoraImporter.strings.completed);
                     $('#quora-progress-running-section').hide();
                     $('#quora-progress-actions').hide();
                     
@@ -418,7 +421,7 @@ jQuery(document).ready(function($) {
                     $('#quora-log-status-indicator')
                         .removeClass('live pulsing')
                         .addClass('finished')
-                        .text('Terminé');
+                        .text(quoraImporter.strings.finished);
                 }
             }
         });

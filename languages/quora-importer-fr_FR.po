@@ -1,0 +1,251 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Quora Importer 1.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-06-28 06:00+0000\n"
+"PO-Revision-Date: 2026-06-28 08:53+02:00\n"
+"Last-Translator: Antigravity\n"
+"Language-Team: French\n"
+"Language: fr_FR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+"X-Generator: Poedit 3.0\n"
+
+msgid "Import a Quora blog from a ZIP or index.html file."
+msgstr "Importer un blog Quora à partir d'un fichier ZIP ou index.html."
+
+msgid "Error uploading file."
+msgstr "Erreur lors du téléversement du fichier."
+
+msgid "Error parsing file."
+msgstr "Erreur lors de l'analyse du fichier."
+
+msgid "Importing..."
+msgstr "Importation en cours..."
+
+msgid "Import completed successfully!"
+msgstr "Importation terminée avec succès !"
+
+msgid "Uploading..."
+msgstr "Téléversement en cours..."
+
+msgid "Extracting archive and parsing content..."
+msgstr "Décompression de l'archive et analyse du contenu..."
+
+msgid "Please select a valid .zip or .html file."
+msgstr "Veuillez choisir un fichier .zip ou .html."
+
+msgid "We found <strong>%d posts</strong> in your export file."
+msgstr "Nous avons trouvé <strong>%d articles</strong> dans votre fichier d'exportation."
+
+msgid " Associated images were detected and will be imported."
+msgstr " Des images associées ont été détectées et pourront être importées."
+
+msgid " No image folder detected (text import only)."
+msgstr " Aucun dossier d'images détecté (importation du texte uniquement)."
+
+msgid "Suggested author \"%s\" pre-selected."
+msgstr "Auteur suggéré \"%s\" pré-sélectionné."
+
+msgid "Please select at least one content type to import."
+msgstr "Veuillez sélectionner au moins un type de contenu à importer."
+
+msgid "Are you sure you want to stop the current import?"
+msgstr "Voulez-vous vraiment arrêter l'importation en cours ?"
+
+msgid "Stopping..."
+msgstr "Arrêt en cours..."
+
+msgid "Starting import of %d posts..."
+msgstr "Début de l'importation de %d articles..."
+
+msgid "Import stopped by user."
+msgstr "Importation interrompue par l'utilisateur."
+
+msgid "[SKIPPED] #%1$d: \"%2$s\" - %3$s"
+msgstr "[IGNORÉ] #%1$d : \"%2$s\" - %3$s"
+
+msgid "[ERROR] #%1$d: %2$s"
+msgstr "[ERREUR] #%1$d : %2$s"
+
+msgid "[ERROR] Network failure during import of post #%d. Retrying..."
+msgstr "[ERREUR] Échec réseau lors de l'importation de l'article #%d. Tentative de poursuite..."
+
+msgid "Import finished! %1$d posts imported, %2$d skipped. Cleaning up..."
+msgstr "Importation terminée ! %1$d articles importés, %2$d ignorés. Nettoyage en cours..."
+
+msgid "Live"
+msgstr "En direct"
+
+msgid "Finished"
+msgstr "Terminé"
+
+msgid "Stop Import"
+msgstr "Arrêter l'importation"
+
+msgid "Quora Blog Importer"
+msgstr "Importateur de Blog Quora"
+
+msgid "Easily migrate your Quora answers, drafts, and space posts to WordPress."
+msgstr "Migrez facilement vos réponses, brouillons et publications d'espace Quora vers WordPress."
+
+msgid "Quora Importer Plugin &bull; Version %s &bull; By Philippe Guglielmetti & Antigravity"
+msgstr "Plugin d'importation Quora &bull; Version %s &bull; Par Philippe Guglielmetti & Antigravity"
+
+msgid "Upload your export file"
+msgstr "Téléversez votre fichier d'exportation"
+
+msgid "Drag & drop your Quora export ZIP file (or index.html) here, or click to browse."
+msgstr "Glissez-déposez votre fichier ZIP d'exportation Quora (ou votre fichier index.html) ici, ou cliquez pour parcourir."
+
+msgid "Select File"
+msgstr "Sélectionner le fichier"
+
+msgid "How to get your Quora export file?"
+msgstr "Comment obtenir votre fichier d'exportation Quora ?"
+
+msgid "Log in to Quora and go to your <strong>Account Settings</strong>."
+msgstr "Connectez-vous à Quora et allez dans vos <strong>Paramètres de compte</strong>."
+
+msgid "Under the <strong>Privacy</strong> tab, click <strong>Download your data (Request Archive)</strong>."
+msgstr "Sous l'onglet <strong>Vie privée (Privacy)</strong>, cliquez sur <strong>Télécharger vos données (Request Archive)</strong>."
+
+msgid "You will receive an email from Quora containing a link to download your ZIP archive."
+msgstr "Vous recevrez un e-mail de Quora contenant un lien pour télécharger votre archive ZIP."
+
+msgid "Upload this ZIP archive directly here to preserve all your answers and images!"
+msgstr "Téléversez cette archive ZIP directement ici pour préserver toutes vos réponses et vos images !"
+
+msgid "Please wait while the file is being processed."
+msgstr "Veuillez patienter pendant le traitement du fichier."
+
+msgid "Import Configuration"
+msgstr "Configuration de l'importation"
+
+msgid "1. Post Settings"
+msgstr "1. Paramètres des articles"
+
+msgid "Author for imported posts:"
+msgstr "Auteur des articles importés :"
+
+msgid "Publish if text is longer than:"
+msgstr "Publier si le texte fait plus de :"
+
+msgid "characters (shorter published originals, or drafts, will be imported as Draft)."
+msgstr "caractères (les originaux publiés plus courts, ou brouillons, seront importés en Brouillon)."
+
+msgid "Link to Quora:"
+msgstr "Lien vers Quora :"
+
+msgid "No"
+msgstr "Non"
+
+msgid "At the top of the post"
+msgstr "En haut de l'article"
+
+msgid "At the bottom of the post"
+msgstr "En bas de l'article"
+
+msgid "Link Template (HTML):"
+msgstr "Format du lien (HTML) :"
+
+msgid "2. Content Types to Import"
+msgstr "2. Types de contenu à importer"
+
+msgid "3. Media & Images"
+msgstr "3. Médias et Images"
+
+msgid "Upload images to the WordPress Media Library"
+msgstr "Téléverser les images dans la bibliothèque WordPress"
+
+msgid "Extracts local images from the ZIP archive and inserts them cleanly into your media library."
+msgstr "Extrait les images locales de l'archive ZIP et les insère proprement dans vos médias."
+
+msgid "Set first image as featured image"
+msgstr "Définir la première image comme image mise en avant"
+
+msgid "Automatically assigns the first image found in the post as the thumbnail."
+msgstr "Assigne automatiquement la première image trouvée dans l'article comme vignette."
+
+msgid "Cancel"
+msgstr "Annuler"
+
+msgid "Start Import"
+msgstr "Lancer l'importation"
+
+msgid "Your Quora blog has been successfully imported. Here is the summary:"
+msgstr "Votre blog Quora a été importé avec succès. Voici le résumé :"
+
+msgid "Imported Posts"
+msgstr "Articles importés"
+
+msgid "Skipped Posts"
+msgstr "Articles ignorés"
+
+msgid "Uploaded Images"
+msgstr "Images téléversées"
+
+msgid "Import Log"
+msgstr "Journal d'importation"
+
+msgid "View All Posts"
+msgstr "Voir tous les articles"
+
+msgid "Import Another File"
+msgstr "Importer un autre fichier"
+
+msgid "Insufficient permissions."
+msgstr "Permissions insuffisantes."
+
+msgid "No file received."
+msgstr "Aucun fichier reçu."
+
+msgid "Invalid file extension. Please use .zip or .html."
+msgstr "Extension de fichier invalide. Utilisez .zip ou .html."
+
+msgid "Could not create temporary directory."
+msgstr "Impossible de créer le dossier temporaire."
+
+msgid "Failed to move uploaded file."
+msgstr "Échec du déplacement du fichier téléversé."
+
+msgid "ZIP extraction failed: "
+msgstr "Échec de la décompression ZIP : "
+
+msgid "Could not find index.html inside the ZIP archive."
+msgstr "Impossible de trouver le fichier index.html dans le fichier ZIP."
+
+msgid "No eligible posts found inside index.html."
+msgstr "Aucun article éligible n'a été trouvé dans le fichier index.html."
+
+msgid "Invalid import parameters."
+msgstr "Paramètres d'importation invalides."
+
+msgid "Import session expired or not found."
+msgstr "Session d'importation expirée ou introuvable."
+
+msgid "Post not found in session."
+msgstr "Article introuvable dans la session."
+
+msgid "Post type \"%s\" skipped based on your filters."
+msgstr "Type de post \"%s\" ignoré selon vos filtres."
+
+msgid "This post already exists in WordPress."
+msgstr "Cet article semble déjà exister dans WordPress."
+
+msgid "Failed to create post: %s"
+msgstr "Échec de création du post : %s"
+
+msgid "Post imported successfully (ID: %1$d, images: %2$d)."
+msgstr "Article importé avec succès (ID : %1$d, images : %2$d)."
+
+msgid "Invalid import session."
+msgstr "Session d'importation invalide."
+
+msgid "Cleanup completed successfully."
+msgstr "Nettoyage terminé avec succès."
+
+msgid "No folder to clean up."
+msgstr "Aucun dossier à nettoyer."
