@@ -16,12 +16,14 @@ def main():
     html = ""
     success = False
     error_msg = "Could not fetch URL"
+    status_code = 0
 
     # Method 1: Try using cloudscraper to bypass Cloudflare
     try:
         import cloudscraper
         scraper = cloudscraper.create_scraper()
         response = scraper.get(url, timeout=10)
+        status_code = response.status_code
         if response.status_code == 200:
             html = response.text
             success = True
@@ -31,7 +33,7 @@ def main():
         error_msg = f"cloudscraper: {str(e)}"
 
     # Method 2: Fallback to requests if cloudscraper failed
-    if not success:
+    if not success and status_code != 404:
         try:
             import requests
             headers = {
@@ -39,6 +41,7 @@ def main():
                 'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
             }
             response = requests.get(url, headers=headers, timeout=10)
+            status_code = response.status_code
             if response.status_code == 200:
                 html = response.text
                 success = True
@@ -48,7 +51,7 @@ def main():
             error_msg = f"requests: {str(e)}"
 
     # Method 3: Fallback to urllib
-    if not success:
+    if not success and status_code != 404:
         try:
             import urllib.request
             import urllib.error
@@ -63,9 +66,52 @@ def main():
                 html = response.read().decode('utf-8', errors='ignore')
                 success = True
         except urllib.error.HTTPError as e:
+            status_code = e.code
             error_msg = f"HTTP {e.code}"
         except Exception as e:
             error_msg = f"urllib: {str(e)}"
+
+    # Method 4: Fallback to Selenium (headless Chrome with User-Agent) if cloudscraper/requests/urllib failed (e.g. due to Cloudflare 403/503)
+    if not success and status_code != 404:
+        try:
+            from selenium import webdriver
+            options = webdriver.ChromeOptions()
+            options.add_argument('--headless=new')
+            options.add_argument('--disable-gpu')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--disable-blink-features=AutomationControlled')
+            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+            
+            driver = webdriver.Chrome(options=options)
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            })
+            driver.get(url)
+            
+            # Wait up to 5 seconds for Cloudflare Turnstile to clear
+            import time
+            for _ in range(5):
+                title = driver.title if driver.title else ""
+                if "Un instant" in title or "Just a moment" in title or "Vérification de sécurité" in title:
+                    time.sleep(1)
+                else:
+                    break
+            
+            title_lower = driver.title.strip().lower() if driver.title else ""
+            if (not title_lower or 
+                title_lower in ["erreur", "error", "quora"] or 
+                "page not found" in title_lower or 
+                "page introuvable" in title_lower):
+                status_code = 404
+                error_msg = "HTTP 404"
+                driver.quit()
+            else:
+                html = driver.page_source
+                success = True
+                driver.quit()
+        except Exception as e:
+            error_msg = f"selenium: {str(e)}"
 
     if not success:
         print(json.dumps({"success": False, "error": error_msg, "topics": []}, ensure_ascii=False))

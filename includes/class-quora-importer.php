@@ -580,6 +580,7 @@ class Quora_Importer {
         $content = preg_replace( '/\[\/?math\]/i', '$', $content );
         $content = $this->clean_html_newlines( $content );
         $content = $this->process_html_links( $content );
+        $content = $this->maybe_remove_bold_title( $content, $title, $post );
         
         // Set post status based on condition
         $status = 'draft'; // Default to draft
@@ -610,42 +611,50 @@ class Quora_Importer {
         
         if ( $existing ) {
             if ( $is_published && $extract_topics ) {
-                $quora_url = $this->generate_quora_url( $post, $extracted_dir, $author_id );
-                if ( ! empty( $quora_url ) ) {
-                    $extracted_topics = $this->extract_quora_topics( $quora_url );
-                    if ( ! empty( $extracted_topics ) ) {
-                        update_post_meta( $existing->ID, '_quora_url', $quora_url );
-                        update_post_meta( $existing->ID, '_quora_url_status', 'valid' );
-                        $current_tags = wp_get_post_tags( $existing->ID, array( 'fields' => 'names' ) );
-                        if ( is_wp_error( $current_tags ) ) {
-                            $current_tags = array();
-                        }
-                        $new_tags = array_unique( array_merge( $current_tags, $extracted_topics ) );
-                        wp_set_post_tags( $existing->ID, $new_tags, false );
-                        
-                        // translators: 1: post ID, 2: number of topics updated.
-                        $msg = sprintf( __( 'Post already exists. Updated topics/tags (ID: %1$d, topics: %2$d).', 'quora-importer' ), $existing->ID, count( $extracted_topics ) );
+                $candidate_urls = $this->get_candidate_urls( $post, $extracted_dir, $author_id );
+                $extracted_topics = array();
+                $valid_url = '';
+                foreach ( $candidate_urls as $candidate ) {
+                    $topics = $this->extract_quora_topics( $candidate );
+                    if ( ! empty( $topics ) ) {
+                        $extracted_topics = $topics;
+                        $valid_url = $candidate;
+                        break;
+                    }
+                }
+                
+                if ( ! empty( $extracted_topics ) ) {
+                    update_post_meta( $existing->ID, '_quora_url', $valid_url );
+                    update_post_meta( $existing->ID, '_quora_url_status', 'valid' );
+                    $current_tags = wp_get_post_tags( $existing->ID, array( 'fields' => 'names' ) );
+                    if ( is_wp_error( $current_tags ) ) {
+                        $current_tags = array();
+                    }
+                    $new_tags = array_unique( array_merge( $current_tags, $extracted_topics ) );
+                    wp_set_post_tags( $existing->ID, $new_tags, false );
+                    
+                    // translators: 1: post ID, 2: number of topics updated.
+                    $msg = sprintf( __( 'Post already exists. Updated topics/tags (ID: %1$d, topics: %2$d).', 'quora-importer' ), $existing->ID, count( $extracted_topics ) );
+                    wp_send_json_success( array(
+                        'status'          => 'imported',
+                        'title'           => $title,
+                        'post_id'         => $existing->ID,
+                        'images_imported' => 0,
+                        'message'         => $msg,
+                        'log_type'        => 'info'
+                    ) );
+                } else {
+                    update_post_meta( $existing->ID, '_quora_url_status', 'invalid' );
+                    if ( ! empty( $this->last_topic_error ) ) {
+                        // translators: %s: error details.
+                        $msg = sprintf( __( 'This post already exists in WordPress. Warning: Topic extraction failed (%s).', 'quora-importer' ), $this->last_topic_error );
                         wp_send_json_success( array(
-                            'status'          => 'imported',
-                            'title'           => $title,
-                            'post_id'         => $existing->ID,
-                            'images_imported' => 0,
-                            'message'         => $msg,
-                            'log_type'        => 'info'
+                            'status'   => 'skipped',
+                            'title'    => $title,
+                            'post_id'  => $existing->ID,
+                            'message'  => $msg,
+                            'log_type' => 'warning'
                         ) );
-                    } else {
-                        update_post_meta( $existing->ID, '_quora_url_status', 'invalid' );
-                        if ( ! empty( $this->last_topic_error ) ) {
-                            // translators: %s: error details.
-                            $msg = sprintf( __( 'This post already exists in WordPress. Warning: Topic extraction failed (%s).', 'quora-importer' ), $this->last_topic_error );
-                            wp_send_json_success( array(
-                                'status'   => 'skipped',
-                                'title'    => $title,
-                                'post_id'  => $existing->ID,
-                                'message'  => $msg,
-                                'log_type' => 'warning'
-                            ) );
-                        }
                     }
                 }
             }
@@ -671,14 +680,22 @@ class Quora_Importer {
         
         // Generate Quora URL if link is requested or topics extraction is enabled (topics only if published)
         $quora_url = '';
-        if ( ( $is_published && $extract_topics ) || ( $link_position !== 'none' && ! empty( $link_template ) ) ) {
-            $quora_url = $this->generate_quora_url( $post, $extracted_dir, $author_id );
-        }
- 
-        // Extract Quora topics/labels if requested (only for published posts)
         $extracted_topics = array();
-        if ( $is_published && $extract_topics && ! empty( $quora_url ) ) {
-            $extracted_topics = $this->extract_quora_topics( $quora_url );
+        $candidate_urls = $this->get_candidate_urls( $post, $extracted_dir, $author_id );
+        
+        if ( $is_published && $extract_topics ) {
+            foreach ( $candidate_urls as $candidate ) {
+                $topics = $this->extract_quora_topics( $candidate );
+                if ( ! empty( $topics ) ) {
+                    $extracted_topics = $topics;
+                    $quora_url = $candidate;
+                    break;
+                }
+            }
+        }
+        
+        if ( empty( $quora_url ) && ! empty( $candidate_urls ) ) {
+            $quora_url = $candidate_urls[0];
         }
  
         // Add link to Quora if requested
@@ -765,48 +782,14 @@ class Quora_Importer {
         }
         
         // Always generate and store Quora URL candidates
-        $title_for_url = '';
-        if ( ! empty( $post['Question'] ) ) {
-            $title_for_url = $post['Question'];
-        } elseif ( ! empty( $post['Title'] ) ) {
-            $title_for_url = $post['Title'];
-        }
-        if ( empty( $title_for_url ) && ! empty( $post['Content'] ) ) {
-            $title_for_url = $this->get_post_title( $post, $post['type'] );
-        }
-        
-        $has_apostrophes = ( false !== strpos( $title_for_url, "'" ) || false !== strpos( $title_for_url, "’" ) );
-        if ( $has_apostrophes ) {
-            $url_a = $this->generate_quora_url( $post, $extracted_dir, $author_id, true, true );
-            $url_b = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, true );
-            $direct_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
-            
-            $quora_urls = array();
-            if ( ! empty( $direct_url ) && filter_var( $direct_url, FILTER_VALIDATE_URL ) ) {
-                $quora_urls[] = $direct_url;
-            }
-            if ( ! empty( $url_a ) && filter_var( $url_a, FILTER_VALIDATE_URL ) && ! in_array( $url_a, $quora_urls ) ) {
-                $quora_urls[] = $url_a;
-            }
-            if ( ! empty( $url_b ) && filter_var( $url_b, FILTER_VALIDATE_URL ) && ! in_array( $url_b, $quora_urls ) ) {
-                $quora_urls[] = $url_b;
-            }
-        } else {
-            if ( empty( $quora_url ) ) {
-                $quora_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
-            }
-            $quora_urls = array( $quora_url );
-        }
+        $quora_urls = $candidate_urls;
         
         if ( ! empty( $quora_urls ) ) {
-            $initial_url = $quora_urls[0];
+            $initial_url = $quora_url;
             $initial_status = 'untested';
             if ( $extract_topics && $is_published ) {
                 if ( ! empty( $extracted_topics ) ) {
                     $initial_status = 'valid';
-                    if ( ! empty( $quora_url ) ) {
-                        $initial_url = $quora_url;
-                    }
                 } else {
                     $initial_status = 'invalid';
                 }
@@ -1086,6 +1069,49 @@ class Quora_Importer {
      * Get or generate a clean title for the post
      */
     private function get_post_title( $post, $type ) {
+        $is_space_post = ( ! empty( $post['Space name'] ) || in_array( $type, array( "Envoi d'espace", "Élément d'espace", 'Space post', 'Space share' ) ) );
+        
+        if ( $is_space_post && ! empty( $post['Content'] ) ) {
+            $content = $post['Content'];
+            
+            $doc = new DOMDocument();
+            libxml_use_internal_errors( true );
+            $doc->loadHTML( '<?xml encoding="UTF-8"><html><body>' . $content . '</body></html>' );
+            libxml_clear_errors();
+            
+            $bold_tags = array();
+            foreach ( array( 'b', 'strong' ) as $tag_name ) {
+                $tags = $doc->getElementsByTagName( $tag_name );
+                if ( $tags->length > 0 ) {
+                    $bold_tags[] = $tags->item( 0 );
+                }
+            }
+            
+            if ( ! empty( $bold_tags ) ) {
+                $first_bold = null;
+                $min_pos = -1;
+                foreach ( $bold_tags as $tag ) {
+                    $html_tag = $doc->saveHTML( $tag );
+                    $pos = strpos( $content, $html_tag );
+                    if ( $pos !== false && ( $min_pos === -1 || $pos < $min_pos ) ) {
+                        $min_pos = $pos;
+                        $first_bold = $tag;
+                    }
+                }
+                
+                if ( $first_bold ) {
+                    $bold_text = trim( $first_bold->textContent );
+                    if ( ! empty( $bold_text ) ) {
+                        $text_before = trim( wp_strip_all_tags( substr( $content, 0, $min_pos ) ) );
+                        if ( strlen( $text_before ) < 100 && mb_strlen( $bold_text ) < 250 ) {
+                            $bold_text = preg_replace( '/\s+/', ' ', $bold_text );
+                            return trim( $bold_text );
+                        }
+                    }
+                }
+            }
+        }
+
         foreach ( array( 'Question', 'Title' ) as $key ) {
             if ( ! empty( $post[$key] ) ) {
                 $title = trim( $post[$key] );
@@ -1125,7 +1151,77 @@ class Quora_Importer {
         
         return 'Untitled ' . $type;
     }
-    
+
+    /**
+     * Maybe remove the bold title from the content of a space post
+     */
+    private function maybe_remove_bold_title( $content, $title, $post ) {
+        $type = ! empty( $post['type'] ) ? $post['type'] : '';
+        $is_space_post = ( ! empty( $post['Space name'] ) || in_array( $type, array( "Envoi d'espace", "Élément d'espace", 'Space post', 'Space share' ) ) );
+        if ( ! $is_space_post || empty( $content ) || empty( $title ) ) {
+            return $content;
+        }
+
+        // Parse with DOMDocument to find the first bold tag at the beginning
+        $doc = new DOMDocument();
+        libxml_use_internal_errors( true );
+        $doc->loadHTML( '<?xml encoding="UTF-8"><html><body>' . $content . '</body></html>' );
+        libxml_clear_errors();
+        
+        $bold_tags = array();
+        foreach ( array( 'b', 'strong' ) as $tag_name ) {
+            $tags = $doc->getElementsByTagName( $tag_name );
+            if ( $tags->length > 0 ) {
+                $bold_tags[] = $tags->item( 0 );
+            }
+        }
+        
+        if ( ! empty( $bold_tags ) ) {
+            $first_bold = null;
+            $min_pos = -1;
+            foreach ( $bold_tags as $tag ) {
+                $html_tag = $doc->saveHTML( $tag );
+                $pos = strpos( $content, $html_tag );
+                if ( $pos !== false && ( $min_pos === -1 || $pos < $min_pos ) ) {
+                    $min_pos = $pos;
+                    $first_bold = $tag;
+                }
+            }
+            
+            if ( $first_bold ) {
+                $bold_text = trim( $first_bold->textContent );
+                $bold_text_clean = preg_replace( '/\s+/', ' ', $bold_text );
+                
+                // Compare with title
+                if ( strcasecmp( trim( $title ), trim( $bold_text_clean ) ) === 0 ) {
+                    $text_before = trim( wp_strip_all_tags( substr( $content, 0, $min_pos ) ) );
+                    if ( strlen( $text_before ) < 100 ) {
+                        $parent = $first_bold->parentNode;
+                        if ( $parent && ( $parent->nodeName === 'p' || $parent->nodeName === 'div' ) ) {
+                            $parent_text = trim( $parent->textContent );
+                            if ( strcasecmp( $parent_text, $bold_text ) === 0 ) {
+                                $parent->parentNode->removeChild( $parent );
+                            } else {
+                                $parent->removeChild( $first_bold );
+                            }
+                        } else {
+                            $first_bold->parentNode->removeChild( $first_bold );
+                        }
+                        
+                        $body = $doc->getElementsByTagName( 'body' )->item( 0 );
+                        $new_content = '';
+                        foreach ( $body->childNodes as $child ) {
+                            $new_content .= $doc->saveHTML( $child );
+                        }
+                        return trim( $new_content );
+                    }
+                }
+            }
+        }
+        
+        return $content;
+    }
+
     /**
      * Parse Quora export date string into a Unix timestamp
      */
@@ -1506,6 +1602,43 @@ class Quora_Importer {
             $title_slug = $this->quora_slugify( $title, false );
             return $this->build_quora_url_with_slug( $post, $type, $title_slug, $profile_slug, $domain, $is_answer );
         }
+    }
+
+    /**
+     * Get candidate Quora URLs based on title containing apostrophes or not
+     */
+    private function get_candidate_urls( $post, $extracted_dir, $author_id = 0 ) {
+        $title = '';
+        if ( ! empty( $post['Question'] ) ) {
+            $title = $post['Question'];
+        } elseif ( ! empty( $post['Title'] ) ) {
+            $title = $post['Title'];
+        }
+        if ( empty( $title ) && ! empty( $post['Content'] ) ) {
+            $title = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
+        }
+        
+        $has_apostrophes = ( false !== strpos( $title, "'" ) || false !== strpos( $title, "’" ) );
+        if ( $has_apostrophes ) {
+            $url_a = $this->generate_quora_url( $post, $extracted_dir, $author_id, true, true );
+            $url_b = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, true );
+            $direct_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
+            
+            $urls = array();
+            if ( ! empty( $direct_url ) && filter_var( $direct_url, FILTER_VALIDATE_URL ) ) {
+                $urls[] = $direct_url;
+            }
+            if ( ! empty( $url_a ) && filter_var( $url_a, FILTER_VALIDATE_URL ) && ! in_array( $url_a, $urls ) ) {
+                $urls[] = $url_a;
+            }
+            if ( ! empty( $url_b ) && filter_var( $url_b, FILTER_VALIDATE_URL ) && ! in_array( $url_b, $urls ) ) {
+                $urls[] = $url_b;
+            }
+            return $urls;
+        }
+        
+        $quora_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
+        return array( $quora_url );
     }
 
     /**
