@@ -11,6 +11,29 @@ from selenium import webdriver
 os.environ["PATH"] = "/usr/bin:/bin:/usr/local/bin:" + os.environ.get("PATH", "")
 
 def scrape_comments(urls):
+    # Pre-check URLs using cloudscraper to filter out 404s and find the correct one quickly.
+    valid_urls = []
+    try:
+        import cloudscraper
+        scraper = cloudscraper.create_scraper()
+        for url in urls:
+            try:
+                res = scraper.get(url, timeout=5, allow_redirects=False)
+                sys.stderr.write(f"DEBUG: Precheck {url} -> status={res.status_code}\n")
+                if res.status_code == 200:
+                    valid_urls.append(url)
+                elif res.status_code in [403, 503, 301, 302]:
+                    valid_urls.append(url)
+            except Exception as e:
+                sys.stderr.write(f"DEBUG: Precheck error for {url}: {e}\n")
+                valid_urls.append(url)
+    except ImportError:
+        sys.stderr.write("DEBUG: cloudscraper not installed, skipping precheck\n")
+        valid_urls = list(urls)
+        
+    if not valid_urls:
+        return {"success": False, "error": "None of the Quora URLs could be loaded (Page not found or redirected).", "comments": []}
+
     # Check if --gui flag is passed in arguments
     use_gui = "--gui" in sys.argv
 
@@ -25,7 +48,7 @@ def scrape_comments(urls):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
-    # options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
     options.add_experimental_option('useAutomationExtension', False)
     
@@ -36,7 +59,7 @@ def scrape_comments(urls):
     html = ""
     successful_url = None
     
-    for url in urls:
+    for url in valid_urls:
         driver = None
         try:
             # Selenium 4 automatically resolves ChromeDriver via Selenium Manager
