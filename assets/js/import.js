@@ -57,7 +57,7 @@ jQuery(document).ready(function($) {
     
     $fileInput.on('change', function() {
         if (this.files.length > 0) {
-            handleFileUpload(this.files[0]);
+            handleFileUpload(this.files);
         }
     });
     
@@ -77,26 +77,34 @@ jQuery(document).ready(function($) {
     $dropzone.on('drop', function(e) {
         const files = e.originalEvent.dataTransfer.files;
         if (files.length > 0) {
-            handleFileUpload(files[0]);
+            handleFileUpload(files);
         }
     });
     
-    function handleFileUpload(file) {
-        const ext = file.name.split('.').pop().toLowerCase();
-        if (ext !== 'zip' && ext !== 'html') {
-            alert(quoraImporter.strings.select_valid_file);
-            return;
+    function handleFileUpload(files) {
+        const formData = new FormData();
+        formData.append('action', 'quora_upload_file');
+        formData.append('nonce', quoraImporter.nonce);
+        
+        let totalSize = 0;
+        let fileNames = [];
+        
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (ext !== 'zip' && ext !== 'html') {
+                alert(quoraImporter.strings.select_valid_file);
+                return;
+            }
+            formData.append('files[]', file);
+            totalSize += file.size;
+            fileNames.push(file.name);
         }
         
         // Switch to loading step
         $loadingMsg.text(quoraImporter.strings.uploading);
-        $loadingSub.text(file.name + ' (' + formatBytes(file.size) + ')');
+        $loadingSub.text(fileNames.join(', ') + ' (' + formatBytes(totalSize) + ')');
         showStep('quora-step-loading');
-        
-        const formData = new FormData();
-        formData.append('action', 'quora_upload_file');
-        formData.append('nonce', quoraImporter.nonce);
-        formData.append('file', file);
         
         // Perform upload AJAX
         $.ajax({

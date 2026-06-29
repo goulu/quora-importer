@@ -131,10 +131,10 @@ class Quora_Importer {
             <div class="quora-dropzone" id="quora-dropzone">
                 <div class="quora-dropzone-inner">
                     <span class="dashicons dashicons-upload quora-upload-icon"></span>
-                    <h3><?php esc_html_e( 'Upload your export file', 'quora-importer' ); ?></h3>
-                    <p><?php esc_html_e( 'Drag & drop your Quora export ZIP file (or index.html) here, or click to browse.', 'quora-importer' ); ?></p>
-                    <button class="button button-primary button-hero quora-browse-btn" type="button"><?php esc_html_e( 'Select File', 'quora-importer' ); ?></button>
-                    <input type="file" id="quora-file-input" accept=".zip,.html" style="display: none;" />
+                    <h3><?php esc_html_e( 'Upload your export file(s)', 'quora-importer' ); ?></h3>
+                    <p><?php esc_html_e( 'Drag & drop your Quora export ZIP file(s) (or index.html) here, or click to browse.', 'quora-importer' ); ?></p>
+                    <button class="button button-primary button-hero quora-browse-btn" type="button"><?php esc_html_e( 'Select File(s)', 'quora-importer' ); ?></button>
+                    <input type="file" id="quora-file-input" accept=".zip,.html" style="display: none;" multiple />
                 </div>
             </div>
             
@@ -334,16 +334,26 @@ class Quora_Importer {
             wp_send_json_error( array( 'message' => __( 'Insufficient permissions.', 'quora-importer' ) ) );
         }
         
-        if ( empty( $_FILES['file'] ) ) {
-            wp_send_json_error( array( 'message' => __( 'No file received.', 'quora-importer' ) ) );
+        if ( empty( $_FILES['files'] ) && empty( $_FILES['file'] ) ) {
+            wp_send_json_error( array( 'message' => __( 'No files received.', 'quora-importer' ) ) );
         }
         
         // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- $_FILES is validated below via checking file extension and using WordPress APIs.
-        $file = $_FILES['file'];
-        $ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
-        
-        if ( ! in_array( $ext, array( 'zip', 'html' ) ) ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid file extension. Please use .zip or .html.', 'quora-importer' ) ) );
+        $uploaded_files = array();
+        if ( ! empty( $_FILES['files'] ) && is_array( $_FILES['files']['name'] ) ) {
+            $files_data = $_FILES['files'];
+            $count = count( $files_data['name'] );
+            for ( $i = 0; $i < $count; $i++ ) {
+                $uploaded_files[] = array(
+                    'name'     => $files_data['name'][$i],
+                    'type'     => $files_data['type'][$i],
+                    'tmp_name' => $files_data['tmp_name'][$i],
+                    'error'    => $files_data['error'][$i],
+                    'size'     => $files_data['size'][$i],
+                );
+            }
+        } elseif ( ! empty( $_FILES['file'] ) ) {
+            $uploaded_files[] = $_FILES['file'];
         }
         
         global $wp_filesystem;
@@ -369,77 +379,104 @@ class Quora_Importer {
             wp_send_json_error( array( 'message' => __( 'Could not create temporary directory.', 'quora-importer' ) ) );
         }
         
-        // Copy uploaded file to session dir
-        $uploaded_file_path = $session_dir . '/' . basename( $file['name'] );
-        if ( ! $wp_filesystem->copy( $file['tmp_name'], $uploaded_file_path ) ) {
-            wp_send_json_error( array( 'message' => __( 'Failed to move uploaded file.', 'quora-importer' ) ) );
-        }
-        
+        $all_posts = array();
         $has_images = false;
-        $extracted_dir = $session_dir;
-        $index_html_path = '';
+        $types_count = array();
         
-        if ( 'zip' === $ext ) {
-            // Unzip the file
-            $unzip_result = unzip_file( $uploaded_file_path, $session_dir );
-            
-            // Delete the zip to save space
-            wp_delete_file( $uploaded_file_path );
-            
-            if ( is_wp_error( $unzip_result ) ) {
+        foreach ( $uploaded_files as $idx => $file ) {
+            $ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+            if ( ! in_array( $ext, array( 'zip', 'html' ) ) ) {
                 $this->recursive_rmdir( $session_dir );
-                // translators: %s: error message.
-                wp_send_json_error( array( 'message' => __( 'ZIP extraction failed: ', 'quora-importer' ) . $unzip_result->get_error_message() ) );
+                wp_send_json_error( array( 'message' => sprintf( __( 'Invalid file extension for %s. Please use .zip or .html.', 'quora-importer' ), esc_html( $file['name'] ) ) ) );
             }
             
-            // Search for index.html recursively in extracted folder
-            $index_html_path = $this->find_file_recursive( $session_dir, 'index.html' );
-            if ( $index_html_path ) {
-                $extracted_dir = dirname( $index_html_path );
-                if ( $wp_filesystem->exists( $extracted_dir . '/images' ) && $wp_filesystem->is_dir( $extracted_dir . '/images' ) ) {
-                    $has_images = true;
+            $file_dir = $session_dir . '/file_' . $idx;
+            if ( ! wp_mkdir_p( $file_dir ) ) {
+                $this->recursive_rmdir( $session_dir );
+                wp_send_json_error( array( 'message' => __( 'Could not create temporary subdirectory.', 'quora-importer' ) ) );
+            }
+            
+            $uploaded_file_path = $file_dir . '/' . basename( $file['name'] );
+            if ( ! $wp_filesystem->copy( $file['tmp_name'], $uploaded_file_path ) ) {
+                $this->recursive_rmdir( $session_dir );
+                wp_send_json_error( array( 'message' => sprintf( __( 'Failed to move uploaded file %s.', 'quora-importer' ), esc_html( $file['name'] ) ) ) );
+            }
+            
+            $extracted_dir = $file_dir;
+            $index_html_path = '';
+            $file_has_images = false;
+            
+            if ( 'zip' === $ext ) {
+                $unzip_result = unzip_file( $uploaded_file_path, $file_dir );
+                wp_delete_file( $uploaded_file_path );
+                
+                if ( is_wp_error( $unzip_result ) ) {
+                    $this->recursive_rmdir( $session_dir );
+                    // translators: %1$s: filename, %2$s: error message.
+                    wp_send_json_error( array( 'message' => sprintf( __( 'ZIP extraction failed for %1$s: %2$s', 'quora-importer' ), esc_html( $file['name'] ), $unzip_result->get_error_message() ) ) );
+                }
+                
+                $index_html_path = $this->find_file_recursive( $file_dir, 'index.html' );
+                if ( $index_html_path ) {
+                    $extracted_dir = dirname( $index_html_path );
+                    if ( $wp_filesystem->exists( $extracted_dir . '/images' ) && $wp_filesystem->is_dir( $extracted_dir . '/images' ) ) {
+                        $file_has_images = true;
+                    }
+                } else {
+                    $this->recursive_rmdir( $session_dir );
+                    wp_send_json_error( array( 'message' => sprintf( __( 'Could not find index.html inside the ZIP archive %s.', 'quora-importer' ), esc_html( $file['name'] ) ) ) );
                 }
             } else {
+                $index_html_path = $uploaded_file_path;
+            }
+            
+            $posts = $this->parse_html_file( $index_html_path );
+            if ( false === $posts || empty( $posts ) ) {
                 $this->recursive_rmdir( $session_dir );
-                wp_send_json_error( array( 'message' => __( 'Could not find index.html inside the ZIP archive.', 'quora-importer' ) ) );
+                wp_send_json_error( array( 'message' => sprintf( __( 'No eligible posts found inside %s.', 'quora-importer' ), esc_html( $file['name'] ) ) ) );
             }
-        } else {
-            $index_html_path = $uploaded_file_path;
-        }
-        
-        // Parse the index.html
-        $posts = $this->parse_html_file( $index_html_path );
-        if ( false === $posts || empty( $posts ) ) {
-            $this->recursive_rmdir( $session_dir );
-            wp_send_json_error( array( 'message' => __( 'No eligible posts found inside index.html.', 'quora-importer' ) ) );
-        }
-        
-        // Get statistics
-        $types_count = array();
-        foreach ( $posts as $post ) {
-            $type = $post['type'];
-            if ( ! isset( $types_count[$type] ) ) {
-                $types_count[$type] = 0;
+            
+            foreach ( $posts as $post ) {
+                $post['extracted_dir'] = $extracted_dir;
+                $all_posts[] = $post;
+                
+                $type = $post['type'];
+                if ( ! isset( $types_count[$type] ) ) {
+                    $types_count[$type] = 0;
+                }
+                $types_count[$type]++;
             }
-            $types_count[$type]++;
+            
+            if ( $file_has_images ) {
+                $has_images = true;
+            }
         }
         
-        // Try to guess default author name from folder
-        $guessed_author = $this->extract_author_from_folder( basename( $extracted_dir ) );
+        // Try to guess default author name from folders
+        $guessed_author = '';
+        foreach ( $all_posts as $post ) {
+            if ( ! empty( $post['extracted_dir'] ) ) {
+                $guessed = $this->extract_author_from_folder( basename( $post['extracted_dir'] ) );
+                if ( ! empty( $guessed ) ) {
+                    $guessed_author = $guessed;
+                    break;
+                }
+            }
+        }
         
         // Save manifest JSON
         $manifest = array(
             'session_id'    => $session_id,
-            'extracted_dir' => $extracted_dir,
+            'extracted_dir' => $session_dir, // Fallback root
             'has_images'    => $has_images,
-            'posts'         => $posts
+            'posts'         => $all_posts
         );
         
         $wp_filesystem->put_contents( $session_dir . '/manifest.json', wp_json_encode( $manifest ) );
         
         wp_send_json_success( array(
             'session_id'     => $session_id,
-            'total_posts'    => count( $posts ),
+            'total_posts'    => count( $all_posts ),
             'post_types'     => $types_count,
             'guessed_author' => $guessed_author,
             'has_images'     => $has_images
@@ -495,6 +532,7 @@ class Quora_Importer {
         
         $post = $manifest['posts'][$item_index];
         $type = $post['type'];
+        $extracted_dir = ! empty( $post['extracted_dir'] ) ? $post['extracted_dir'] : ( ! empty( $manifest['extracted_dir'] ) ? $manifest['extracted_dir'] : $session_dir );
         
         // Check if type is enabled
         if ( ! in_array( $type, $enabled_types ) ) {
@@ -553,7 +591,7 @@ class Quora_Importer {
         
         if ( $existing ) {
             if ( $is_published && $extract_topics ) {
-                $quora_url = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id );
+                $quora_url = $this->generate_quora_url( $post, $extracted_dir, $author_id );
                 if ( ! empty( $quora_url ) ) {
                     $extracted_topics = $this->extract_quora_topics( $quora_url );
                     if ( ! empty( $extracted_topics ) ) {
@@ -601,7 +639,7 @@ class Quora_Importer {
         $featured_image_id = 0;
         
         if ( $import_images && $manifest['has_images'] ) {
-            $sideload_result = $this->sideload_content_images( $content, $manifest['extracted_dir'], $set_featured, $post_date );
+            $sideload_result = $this->sideload_content_images( $content, $extracted_dir, $set_featured, $post_date );
             $content = $sideload_result['content'];
             $images_imported = $sideload_result['count'];
             $featured_image_id = $sideload_result['featured_id'];
@@ -610,7 +648,7 @@ class Quora_Importer {
         // Generate Quora URL if link is requested or topics extraction is enabled (topics only if published)
         $quora_url = '';
         if ( ( $is_published && $extract_topics ) || ( $link_position !== 'none' && ! empty( $link_template ) ) ) {
-            $quora_url = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id );
+            $quora_url = $this->generate_quora_url( $post, $extracted_dir, $author_id );
         }
  
         // Extract Quora topics/labels if requested (only for published posts)
@@ -718,12 +756,12 @@ class Quora_Importer {
             
             $has_apostrophes = ( false !== strpos( $title_for_url, "'" ) || false !== strpos( $title_for_url, "’" ) );
             if ( $has_apostrophes ) {
-                $url_a = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id, true );
-                $url_b = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id, false );
+                $url_a = $this->generate_quora_url( $post, $extracted_dir, $author_id, true );
+                $url_b = $this->generate_quora_url( $post, $extracted_dir, $author_id, false );
                 $quora_urls = array( $url_a, $url_b );
             } else {
                 if ( empty( $quora_url ) ) {
-                    $quora_url = $this->generate_quora_url( $post, $manifest['extracted_dir'], $author_id, false );
+                    $quora_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false );
                 }
                 $quora_urls = array( $quora_url );
             }
