@@ -11,7 +11,7 @@ jQuery(document).ready(function($) {
     let linkTemplate = '';
     let enabledTypes = [];
     let extractTopics = 0;
-    let importComments = 0;
+    let importComments = 'none';
     
     let currentIndex = 0;
     let importedCount = 0;
@@ -240,7 +240,7 @@ jQuery(document).ready(function($) {
         importImages = $('#quora-import-images').is(':checked') ? 1 : 0;
         setFeatured = $('#quora-set-featured').is(':checked') ? 1 : 0;
         extractTopics = $('#quora-extract-topics').is(':checked') ? 1 : 0;
-        importComments = $('#quora-import-comments').is(':checked') ? 1 : 0;
+        importComments = $('#quora-import-comments').val();
         
         enabledTypes = [];
         $('input[name="enabled_types[]"]:checked').each(function() {

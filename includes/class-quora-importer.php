@@ -23,6 +23,10 @@ class Quora_Importer {
         add_action( 'wp_ajax_quora_upload_file', array( $this, 'ajax_upload_file' ) );
         add_action( 'wp_ajax_quora_import_item', array( $this, 'ajax_import_item' ) );
         add_action( 'wp_ajax_quora_import_cleanup', array( $this, 'ajax_import_cleanup' ) );
+        
+        // Deferred comments extraction hooks
+        add_action( 'template_redirect', array( $this, 'maybe_schedule_deferred_comments' ) );
+        add_action( 'quora_import_deferred_comments', array( $this, 'cron_import_comments' ) );
     }
     
     /**
@@ -248,12 +252,16 @@ class Quora_Importer {
                 
                 <div class="quora-form-section">
                     <h4><?php esc_html_e( '5. Comment Settings', 'quora-importer' ); ?></h4>
-                    <div class="quora-form-row checkbox-row">
-                        <input type="checkbox" name="import_comments" id="quora-import-comments" value="1" />
+                    <div class="quora-form-row">
                         <label for="quora-import-comments">
                             <strong><?php esc_html_e( 'Import comments from Quora', 'quora-importer' ); ?></strong>
-                            <span class="help-desc"><?php esc_html_e( 'Launches Vivaldi to fetch and import nested comment threads and metadata from the Quora answer page.', 'quora-importer' ); ?></span>
                         </label>
+                        <select name="import_comments" id="quora-import-comments" style="display: block; margin-top: 5px; min-width: 250px;">
+                            <option value="none"><?php esc_html_e( "No import (Pas d'importation)", 'quora-importer' ); ?></option>
+                            <option value="direct"><?php esc_html_e( 'Direct import (Importation directe)', 'quora-importer' ); ?></option>
+                            <option value="deferred" selected="selected"><?php esc_html_e( 'Deferred import (Importation différée)', 'quora-importer' ); ?></option>
+                        </select>
+                        <span class="help-desc"><?php esc_html_e( 'Choose when and how to import comments. Direct imports comments during the import process. Deferred schedules comment scraping asynchronously via WordPress CRON on demand when the post is first viewed on the site.', 'quora-importer' ); ?></span>
                     </div>
                 </div>
                 
@@ -501,7 +509,7 @@ class Quora_Importer {
         $import_images = ! empty( $_POST['import_images'] );
         $set_featured = ! empty( $_POST['set_featured'] );
         $extract_topics = ! empty( $_POST['extract_topics'] );
-        $import_comments = ! empty( $_POST['import_comments'] );
+        $import_comments = isset( $_POST['import_comments'] ) ? sanitize_text_field( wp_unslash( $_POST['import_comments'] ) ) : 'none';
         $link_position = isset( $_POST['link_position'] ) ? sanitize_text_field( wp_unslash( $_POST['link_position'] ) ) : 'none';
         $link_template = isset( $_POST['link_template'] ) ? wp_kses_post( wp_unslash( $_POST['link_template'] ) ) : '';
         
@@ -743,7 +751,8 @@ class Quora_Importer {
         // Import comments if requested (only for published posts)
         $comments_imported = 0;
         $comments_warning = '';
-        if ( $is_published && $import_comments ) {
+        
+        if ( $is_published && 'none' !== $import_comments ) {
             $title_for_url = '';
             if ( ! empty( $post['Question'] ) ) {
                 $title_for_url = $post['Question'];
@@ -766,13 +775,23 @@ class Quora_Importer {
                 $quora_urls = array( $quora_url );
             }
             
+            // Set initial fallback url
             if ( ! empty( $quora_urls ) ) {
-                $comments_res = $this->import_quora_comments( $post_id, $quora_urls, $post_date );
-                if ( $comments_res['success'] ) {
-                    $comments_imported = $comments_res['count'];
-                } else {
-                    $comments_warning = $comments_res['error'];
+                update_post_meta( $post_id, '_quora_url', $quora_urls[0] );
+            }
+            
+            if ( 'direct' === $import_comments ) {
+                if ( ! empty( $quora_urls ) ) {
+                    $comments_res = $this->import_quora_comments( $post_id, $quora_urls, $post_date );
+                    if ( $comments_res['success'] ) {
+                        $comments_imported = $comments_res['count'];
+                    } else {
+                        $comments_warning = $comments_res['error'];
+                    }
                 }
+            } elseif ( 'deferred' === $import_comments ) {
+                update_post_meta( $post_id, '_quora_candidate_urls', $quora_urls );
+                update_post_meta( $post_id, '_quora_comments_imported', '0' );
             }
         }
 
@@ -1999,6 +2018,62 @@ class Quora_Importer {
         }
 
         return date( 'Y-m-d H:i:s', $post_time + 86400 );
+    }
+
+    /**
+     * Schedules the deferred comments scraping when a single post page is visited.
+     */
+    public function maybe_schedule_deferred_comments() {
+        if ( ! is_single() ) {
+            return;
+        }
+        
+        $post_id = get_the_ID();
+        $imported = get_post_meta( $post_id, '_quora_comments_imported', true );
+        
+        if ( '0' === $imported ) {
+            if ( ! wp_next_scheduled( 'quora_import_deferred_comments', array( $post_id ) ) ) {
+                wp_schedule_single_event( time(), 'quora_import_deferred_comments', array( $post_id ) );
+            }
+        }
+    }
+
+    /**
+     * Cron action handler to fetch comments for a post in the background.
+     */
+    public function cron_import_comments( $post_id ) {
+        $status = get_post_meta( $post_id, '_quora_comments_imported', true );
+        if ( '0' !== $status ) {
+            return; // Already imported or currently scraping
+        }
+        
+        // Lock the process
+        update_post_meta( $post_id, '_quora_comments_imported', 'scraping' );
+        
+        $quora_urls = get_post_meta( $post_id, '_quora_candidate_urls', true );
+        if ( empty( $quora_urls ) ) {
+            $quora_url = get_post_meta( $post_id, '_quora_url', true );
+            if ( ! empty( $quora_url ) ) {
+                $quora_urls = array( $quora_url );
+            }
+        }
+        
+        if ( empty( $quora_urls ) ) {
+            update_post_meta( $post_id, '_quora_comments_imported', 'failed_no_url' );
+            return;
+        }
+        
+        $post = get_post( $post_id );
+        $post_date = $post ? $post->post_date : current_time( 'mysql' );
+        
+        $res = $this->import_quora_comments( $post_id, $quora_urls, $post_date );
+        
+        if ( $res['success'] ) {
+            update_post_meta( $post_id, '_quora_comments_imported', '1' );
+        } else {
+            // Revert status to 0 so it can be retried on subsequent visits
+            update_post_meta( $post_id, '_quora_comments_imported', '0' );
+        }
     }
 }
 

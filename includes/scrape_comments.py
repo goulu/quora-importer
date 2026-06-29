@@ -25,7 +25,7 @@ def scrape_comments(urls):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    # options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
     options.add_experimental_option('useAutomationExtension', False)
     
@@ -57,6 +57,7 @@ def scrape_comments(urls):
                 soup = BeautifulSoup(html, "html.parser")
                 
                 title = soup.title.string if soup.title else ''
+                sys.stderr.write(f"DEBUG: i={i}, title={title}\n")
                 
                 # Wait until Cloudflare verification clears
                 if title and ('Un instant' in title or 'Just a moment' in title or 'Vérification de sécurité' in title):
@@ -66,12 +67,15 @@ def scrape_comments(urls):
                 title_lower = title.strip().lower()
                 page_text_lower = soup.get_text().lower()
                 
+                sys.stderr.write(f"DEBUG: title_lower={title_lower}, text_snippet={page_text_lower[:200].replace(chr(10), ' ')}\n")
+                
                 if (not title or 
                     title_lower in ["erreur", "error", "quora"] or 
                     "page not found" in page_text_lower or 
                     "n'avons pas trouvé la page" in page_text_lower or 
                     "page introuvable" in page_text_lower or 
                     "n'existe pas" in page_text_lower):
+                    sys.stderr.write("DEBUG: Match failed invalid condition\n")
                     break
                 
                 is_valid = True
