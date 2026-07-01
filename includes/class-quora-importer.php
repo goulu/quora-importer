@@ -212,13 +212,13 @@ class Quora_Importer {
                     <div class="quora-form-row">
                         <label for="quora-link-position"><?php esc_html_e( 'Link to Quora:', 'quora-importer' ); ?></label>
                         <select name="link_position" id="quora-link-position">
-                            <option value="none" selected><?php esc_html_e( 'No', 'quora-importer' ); ?></option>
-                            <option value="top"><?php esc_html_e( 'At the top of the post', 'quora-importer' ); ?></option>
+                            <option value="none"><?php esc_html_e( 'No', 'quora-importer' ); ?></option>
+                            <option value="top" selected><?php esc_html_e( 'At the top of the post', 'quora-importer' ); ?></option>
                             <option value="bottom"><?php esc_html_e( 'At the bottom of the post', 'quora-importer' ); ?></option>
                         </select>
                     </div>
                     
-                    <div class="quora-form-row" id="quora-link-template-row" style="display: none;">
+                    <div class="quora-form-row" id="quora-link-template-row">
                         <label for="quora-link-template"><?php esc_html_e( 'Link Template (HTML):', 'quora-importer' ); ?></label>
                         <input type="text" id="quora-link-template" name="link_template" value='<a href="$link$" target="_blank">voir sur Quora </a >' style="width: 100%; max-width: 400px;" />
                     </div>
@@ -253,7 +253,7 @@ class Quora_Importer {
                 <div class="quora-form-section">
                     <h4><?php esc_html_e( '4. Tag Settings', 'quora-importer' ); ?></h4>
                     <div class="quora-form-row checkbox-row">
-                        <input type="checkbox" name="extract_topics" id="quora-extract-topics" value="1" />
+                        <input type="checkbox" name="extract_topics" id="quora-extract-topics" value="1" checked />
                         <label for="quora-extract-topics">
                             <strong><?php esc_html_e( 'Extract Quora topic labels', 'quora-importer' ); ?></strong>
                             <span class="help-desc"><?php esc_html_e( 'Visits the corresponding Quora link for each post to extract its original topic tags (e.g. "Sociologie", "Exemples") and apply them as WordPress tags.', 'quora-importer' ); ?></span>
