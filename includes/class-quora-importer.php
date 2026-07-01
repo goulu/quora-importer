@@ -609,10 +609,76 @@ class Quora_Importer {
         ) );
         $existing = $existing_query->have_posts() ? $existing_query->posts[0] : null;
         
+        if ( ! $existing && $timestamp > 0 ) {
+            $existing_query = new WP_Query( array(
+                'post_type'           => 'post',
+                'post_status'         => 'any',
+                'date_query'          => array(
+                    array(
+                        'year'   => wp_date( 'Y', $timestamp ),
+                        'month'  => wp_date( 'm', $timestamp ),
+                        'day'    => wp_date( 'd', $timestamp ),
+                        'hour'   => wp_date( 'H', $timestamp ),
+                        'minute' => wp_date( 'i', $timestamp ),
+                        'second' => wp_date( 's', $timestamp ),
+                    ),
+                ),
+                'posts_per_page'      => 1,
+                'no_found_rows'       => true,
+                'ignore_sticky_posts' => true,
+                'update_post_term_cache' => false,
+                'update_post_meta_cache' => false,
+            ) );
+            $existing = $existing_query->have_posts() ? $existing_query->posts[0] : null;
+        }
+        
         if ( $existing ) {
+            // Update title and content if they differ (e.g. due to clean title/text extraction)
+            $update_data = array( 'ID' => $existing->ID );
+            $needs_update = false;
+            
+            if ( $existing->post_title !== $title ) {
+                $update_data['post_title'] = $title;
+                $needs_update = true;
+            }
+            if ( $existing->post_content !== $content ) {
+                $update_data['post_content'] = $content;
+                $needs_update = true;
+            }
+            if ( $needs_update ) {
+                wp_update_post( $update_data );
+            }
+
+            // Update categories
+            $categories = array();
+            if ( $type === 'Répondre' || $type === 'Answer' ) {
+                $categories[] = $this->get_or_create_term( 'Quora Answers', 'category' );
+            } elseif ( $type === 'Brouillon de réponse' || $type === 'Answer Draft' ) {
+                $categories[] = $this->get_or_create_term( 'Quora Drafts', 'category' );
+            } elseif ( in_array( $type, array( "Envoi d'espace", "Élément d'espace", 'Space post', 'Space share' ) ) ) {
+                $categories[] = $this->get_or_create_term( 'Quora Space Posts', 'category' );
+            } else {
+                $categories[] = $this->get_or_create_term( 'Quora Export', 'category' );
+            }
+            if ( ! empty( $post['Space name'] ) ) {
+                $categories[] = $this->get_or_create_term( $post['Space name'], 'category' );
+            }
+            if ( ! empty( $categories ) ) {
+                wp_set_post_categories( $existing->ID, $categories );
+            }
+
+            // Always update candidates and URL
+            $candidate_urls = $this->get_candidate_urls( $post, $extracted_dir, $author_id );
+            update_post_meta( $existing->ID, '_quora_candidate_urls', $candidate_urls );
+            
+            $quora_url = '';
+            if ( ! empty( $candidate_urls ) ) {
+                $quora_url = $candidate_urls[0];
+            }
+            
+            // If topic extraction is requested, validate the URL
+            $extracted_topics = array();
             if ( $is_published && $extract_topics ) {
-                $candidate_urls = $this->get_candidate_urls( $post, $extracted_dir, $author_id );
-                $extracted_topics = array();
                 $valid_url = '';
                 foreach ( $candidate_urls as $candidate ) {
                     $topics = $this->extract_quora_topics( $candidate );
@@ -632,37 +698,25 @@ class Quora_Importer {
                     }
                     $new_tags = array_unique( array_merge( $current_tags, $extracted_topics ) );
                     wp_set_post_tags( $existing->ID, $new_tags, false );
-                    
-                    // translators: 1: post ID, 2: number of topics updated.
-                    $msg = sprintf( __( 'Post already exists. Updated topics/tags (ID: %1$d, topics: %2$d).', 'quora-importer' ), $existing->ID, count( $extracted_topics ) );
-                    wp_send_json_success( array(
-                        'status'          => 'imported',
-                        'title'           => $title,
-                        'post_id'         => $existing->ID,
-                        'images_imported' => 0,
-                        'message'         => $msg,
-                        'log_type'        => 'info'
-                    ) );
                 } else {
                     update_post_meta( $existing->ID, '_quora_url_status', 'invalid' );
-                    if ( ! empty( $this->last_topic_error ) ) {
-                        // translators: %s: error details.
-                        $msg = sprintf( __( 'This post already exists in WordPress. Warning: Topic extraction failed (%s).', 'quora-importer' ), $this->last_topic_error );
-                        wp_send_json_success( array(
-                            'status'   => 'skipped',
-                            'title'    => $title,
-                            'post_id'  => $existing->ID,
-                            'message'  => $msg,
-                            'log_type' => 'warning'
-                        ) );
+                    if ( ! empty( $quora_url ) ) {
+                        update_post_meta( $existing->ID, '_quora_url', $quora_url );
                     }
                 }
+            } else {
+                // If not testing topics, update the URL and mark it as untested
+                if ( ! empty( $quora_url ) ) {
+                    update_post_meta( $existing->ID, '_quora_url', $quora_url );
+                    update_post_meta( $existing->ID, '_quora_url_status', 'untested' );
+                }
             }
+            
             wp_send_json_success( array(
                 'status'   => 'skipped',
                 'title'    => $title,
                 'post_id'  => $existing->ID,
-                'message'  => __( 'This post already exists in WordPress.', 'quora-importer' ),
+                'message'  => __( 'This post already exists in WordPress (updated).', 'quora-importer' ),
                 'log_type' => 'info'
             ) );
         }
@@ -1007,7 +1061,7 @@ class Quora_Importer {
                                                     }
                                                 }
                                             }
-                                            if ( empty( $target_url ) && filter_var( $href, FILTER_VALIDATE_URL ) ) {
+                                            if ( empty( $target_url ) && $this->validate_quora_url( $href ) ) {
                                                 $target_url = $href;
                                             }
                                         }
@@ -1042,7 +1096,7 @@ class Quora_Importer {
                                                 }
                                             }
                                         }
-                                        if ( empty( $target_url ) && filter_var( $href, FILTER_VALIDATE_URL ) ) {
+                                        if ( empty( $target_url ) && $this->validate_quora_url( $href ) ) {
                                             $target_url = $href;
                                         }
                                     }
@@ -1064,12 +1118,131 @@ class Quora_Importer {
         
         return $posts;
     }
+
+    /**
+     * Validates a URL, supporting international/accented characters.
+     */
+    private function validate_quora_url( $url ) {
+        if ( empty( $url ) ) {
+            return false;
+        }
+        if ( filter_var( $url, FILTER_VALIDATE_URL ) ) {
+            return true;
+        }
+        $encoded_url = preg_replace_callback( '/[^\x21-\x7E]/', function( $matches ) {
+            return rawurlencode( $matches[0] );
+        }, $url );
+        return (bool) filter_var( $encoded_url, FILTER_VALIDATE_URL );
+    }
     
+    /**
+     * Helper to check if a post is a space post
+     */
+    private function is_space_post( $post, $type ) {
+        if ( ! empty( $post['Space name'] ) ) {
+            return true;
+        }
+        
+        $space_types = array(
+            'Space post',
+            'Space share',
+            "Envoi d'espace",
+            "Élément d'espace",
+            'Billet',
+            'Publication',
+            'Post',
+            'Partage',
+            'Lien partagé'
+        );
+        foreach ( $space_types as $st ) {
+            if ( strcasecmp( $type, $st ) === 0 || html_entity_decode( $type ) === $st ) {
+                return true;
+            }
+        }
+        
+        // Check if direct URL has a space subdomain
+        foreach ( array( 'Answer', 'Question', 'Link', 'url', 'Share url', 'Share URL' ) as $key ) {
+            if ( ! empty( $post[$key] ) ) {
+                $val = trim( $post[$key] );
+                if ( $this->validate_quora_url( $val ) ) {
+                    $host = wp_parse_url( $val, PHP_URL_HOST );
+                    if ( $host && preg_match( '/^([^.]+)\.quora\.com$/i', $host, $matches ) ) {
+                        $sub = strtolower( $matches[1] );
+                        if ( ! in_array( $sub, array( 'www', 'fr', 'es', 'de', 'it', 'en' ) ) ) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        return false;
+    }
+
     /**
      * Get or generate a clean title for the post
      */
     private function get_post_title( $post, $type ) {
-        $is_space_post = ( ! empty( $post['Space name'] ) || in_array( $type, array( "Envoi d'espace", "Élément d'espace", 'Space post', 'Space share' ) ) );
+        $is_space_post = $this->is_space_post( $post, $type );
+        
+        // 1. Try to reconstruct title from the URL slug if available (especially for space posts without a Question/Title field)
+        $url_slug = '';
+        foreach ( array( 'Answer', 'Question', 'Link', 'url', 'Share url', 'Share URL' ) as $key ) {
+            if ( ! empty( $post[$key] ) ) {
+                $val = trim( $post[$key] );
+                if ( $this->validate_quora_url( $val ) ) {
+                    $path = wp_parse_url( $val, PHP_URL_PATH );
+                    if ( $path ) {
+                        $path = trim( $path, '/' );
+                        if ( preg_match( '/^([^\/]+)\/answer\//i', $path, $matches ) ) {
+                            $url_slug = urldecode( $matches[1] );
+                        } else {
+                            $url_slug = urldecode( $path );
+                        }
+                        if ( ! empty( $url_slug ) ) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if ( ! empty( $url_slug ) && ! empty( $post['Content'] ) ) {
+            $content_text = trim( wp_strip_all_tags( $post['Content'] ) );
+            $content_text = preg_replace( '/\s+/', ' ', $content_text );
+            
+            // Clean up slug into words
+            $slug_words = explode( '-', $url_slug );
+            $slug_words = array_filter( array_map( function( $w ) {
+                return mb_strtolower( preg_replace( '/[^\p{L}\p{N}]/u', '', remove_accents( $w ) ) );
+            }, $slug_words ) );
+            
+            if ( ! empty( $slug_words ) ) {
+                $normalized_text = mb_strtolower( remove_accents( $content_text ) );
+                $pos = 0;
+                $matched_all = true;
+                foreach ( $slug_words as $word ) {
+                    $word_pos = mb_strpos( $normalized_text, $word, $pos );
+                    if ( $word_pos !== false && $word_pos - $pos < 100 ) {
+                        $pos = $word_pos + mb_strlen( $word );
+                    } else {
+                        $matched_all = false;
+                        break;
+                    }
+                }
+                
+                if ( $matched_all && $pos > 0 ) {
+                    $matched_title = mb_substr( $content_text, 0, $pos );
+                    $matched_title = rtrim( $matched_title, " ,.:;!?-()[]{}'’\"" );
+                    $matched_title = preg_replace( '/\b([LdNsCjtm])[\'’]\s+/i', '$1\'', $matched_title );
+                    $matched_title = str_replace( '’', "'", $matched_title );
+                    
+                    if ( ! empty( $matched_title ) && mb_strlen( $matched_title ) < 200 ) {
+                        return $matched_title;
+                    }
+                }
+            }
+        }
         
         if ( $is_space_post && ! empty( $post['Content'] ) ) {
             $content = $post['Content'];
@@ -1157,7 +1330,7 @@ class Quora_Importer {
      */
     private function maybe_remove_bold_title( $content, $title, $post ) {
         $type = ! empty( $post['type'] ) ? $post['type'] : '';
-        $is_space_post = ( ! empty( $post['Space name'] ) || in_array( $type, array( "Envoi d'espace", "Élément d'espace", 'Space post', 'Space share' ) ) );
+        $is_space_post = $this->is_space_post( $post, $type );
         if ( ! $is_space_post || empty( $content ) || empty( $title ) ) {
             return $content;
         }
@@ -1533,10 +1706,10 @@ class Quora_Importer {
     private function generate_quora_url( $post, $extracted_dir, $author_id = 0, $replace_apostrophes = false, $force_slugify = false ) {
         if ( ! $force_slugify ) {
             // First, check if there is a direct URL already parsed from the HTML export
-            foreach ( array( 'Answer', 'Question', 'Link', 'url' ) as $key ) {
+            foreach ( array( 'Answer', 'Question', 'Link', 'url', 'Share url', 'Share URL' ) as $key ) {
                 if ( ! empty( $post[$key] ) ) {
                     $val = trim( $post[$key] );
-                    if ( filter_var( $val, FILTER_VALIDATE_URL ) ) {
+                    if ( $this->validate_quora_url( $val ) ) {
                         return $val;
                     }
                 }
@@ -1625,13 +1798,13 @@ class Quora_Importer {
             $direct_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
             
             $urls = array();
-            if ( ! empty( $direct_url ) && filter_var( $direct_url, FILTER_VALIDATE_URL ) ) {
+            if ( ! empty( $direct_url ) && $this->validate_quora_url( $direct_url ) ) {
                 $urls[] = $direct_url;
             }
-            if ( ! empty( $url_a ) && filter_var( $url_a, FILTER_VALIDATE_URL ) && ! in_array( $url_a, $urls ) ) {
+            if ( ! empty( $url_a ) && $this->validate_quora_url( $url_a ) && ! in_array( $url_a, $urls ) ) {
                 $urls[] = $url_a;
             }
-            if ( ! empty( $url_b ) && filter_var( $url_b, FILTER_VALIDATE_URL ) && ! in_array( $url_b, $urls ) ) {
+            if ( ! empty( $url_b ) && $this->validate_quora_url( $url_b ) && ! in_array( $url_b, $urls ) ) {
                 $urls[] = $url_b;
             }
             return $urls;
@@ -1663,13 +1836,37 @@ class Quora_Importer {
             return "https://{$domain}/{$title_slug}/answer/{$profile_slug}";
         }
         
-        // Space posts
-        if ( ! empty( $post['Space name'] ) ) {
-            $space_slug = sanitize_title( $post['Space name'] );
-            if ( ! empty( $title_slug ) ) {
-                return "https://{$space_slug}.quora.com/{$title_slug}";
+        // Extract space subdomain
+        $space_subdomain = '';
+        
+        // 1. Try to extract it from the direct URL (which is always the most accurate source)
+        foreach ( array( 'Answer', 'Question', 'Link', 'url', 'Share url', 'Share URL' ) as $key ) {
+            if ( ! empty( $post[$key] ) ) {
+                $val = trim( $post[$key] );
+                if ( $this->validate_quora_url( $val ) ) {
+                    $host = wp_parse_url( $val, PHP_URL_HOST );
+                    if ( $host && preg_match( '/^([^.]+)\.quora\.com$/i', $host, $matches ) ) {
+                        $sub = strtolower( $matches[1] );
+                        if ( ! in_array( $sub, array( 'www', 'fr', 'es', 'de', 'it', 'en' ) ) ) {
+                            $space_subdomain = $sub;
+                            break;
+                        }
+                    }
+                }
             }
-            return "https://{$space_slug}.quora.com";
+        }
+        
+        // 2. Fall back to Space name if not found in direct URL
+        if ( empty( $space_subdomain ) && ! empty( $post['Space name'] ) ) {
+            $normalized = remove_accents( $post['Space name'] );
+            $space_subdomain = strtolower( preg_replace( '/[^A-Za-z0-9]/', '', $normalized ) );
+        }
+        
+        if ( ! empty( $space_subdomain ) ) {
+            if ( ! empty( $title_slug ) ) {
+                return "https://{$space_subdomain}.quora.com/{$title_slug}";
+            }
+            return "https://{$space_subdomain}.quora.com";
         }
         
         // General fallback
@@ -1702,18 +1899,7 @@ class Quora_Importer {
         // Replace slashes, underscores, carets, parentheses, brackets, and braces with spaces to prevent word merging
         $title = str_replace( array( '/', '_', '^', '(', ')', '[', ']', '{', '}' ), ' ', $title );
 
-        // Normalize capital accented characters to their unaccented equivalents
-        $accented_capitals = array(
-            'À' => 'A', 'Á' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A', 'Å' => 'A', 'Æ' => 'AE',
-            'Ç' => 'C',
-            'È' => 'E', 'É' => 'E', 'Ê' => 'E', 'Ë' => 'E',
-            'Ì' => 'I', 'Í' => 'I', 'Î' => 'I', 'Ï' => 'I',
-            'Ñ' => 'N',
-            'Ò' => 'O', 'Ó' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O', 'Œ' => 'OE',
-            'Ù' => 'U', 'Ú' => 'U', 'Û' => 'U', 'Ü' => 'U',
-            'Ý' => 'Y', 'Ÿ' => 'Y'
-        );
-        $title = str_replace( array_keys( $accented_capitals ), array_values( $accented_capitals ), $title );
+
         
         // Strip everything except letters, numbers, spaces, hyphens, and plus signs (preserving accents and case)
         $slug = preg_replace( '/[^\p{L}\p{N}\s\-\+]/u', '', $title );
@@ -2315,6 +2501,7 @@ class Quora_Importer {
 
         $quora_url = get_post_meta( $post->ID, '_quora_url', true );
         $quora_status = get_post_meta( $post->ID, '_quora_url_status', true );
+        $quora_override = get_post_meta( $post->ID, '_quora_url_override', true );
         if ( empty( $quora_status ) ) {
             $quora_status = 'untested';
         }
@@ -2335,6 +2522,10 @@ class Quora_Importer {
             <p>
                 <label for="quora_url_input" style="font-weight: 600; display: block; margin-bottom: 5px;"><?php _e( 'URL de la réponse Quora :', 'quora-importer' ); ?></label>
                 <input type="url" id="quora_url_input" name="quora_url" value="<?php echo esc_attr( $quora_url ); ?>" style="width: 100%; box-sizing: border-box;" placeholder="https://fr.quora.com/... /answer/..." />
+            </p>
+            <p style="margin-top: 10px; margin-bottom: 10px;">
+                <input type="checkbox" id="quora_url_override_input" name="quora_url_override" value="1" <?php checked( $quora_override, '1' ); ?> />
+                <label for="quora_url_override_input" style="font-weight: 500; font-size: 13px; color: #555;"><?php _e( 'Verrouiller cette URL (ne pas écraser)', 'quora-importer' ); ?></label>
             </p>
             
             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 15px; margin-bottom: 10px;">
@@ -2552,6 +2743,9 @@ class Quora_Importer {
             return;
         }
 
+        $override_val = isset( $_POST['quora_url_override'] ) ? '1' : '0';
+        update_post_meta( $post_id, '_quora_url_override', $override_val );
+
         if ( isset( $_POST['quora_url'] ) ) {
             $new_url = esc_url_raw( trim( $_POST['quora_url'] ) );
             $old_url = get_post_meta( $post_id, '_quora_url', true );
@@ -2608,7 +2802,7 @@ class Quora_Importer {
         $url = isset( $_POST['url'] ) ? esc_url_raw( trim( $_POST['url'] ) ) : '';
         $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
         
-        if ( empty( $url ) || ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
+        if ( empty( $url ) || ! $this->validate_quora_url( $url ) ) {
             wp_send_json_error( array( 'message' => __( 'Veuillez saisir une URL valide.', 'quora-importer' ) ) );
         }
         
@@ -2671,7 +2865,7 @@ class Quora_Importer {
         $url = isset( $_POST['url'] ) ? esc_url_raw( trim( $_POST['url'] ) ) : '';
         $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
         
-        if ( empty( $url ) || ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
+        if ( empty( $url ) || ! $this->validate_quora_url( $url ) ) {
             wp_send_json_error( array( 'message' => __( 'Veuillez saisir une URL valide.', 'quora-importer' ) ) );
         }
         
@@ -2717,7 +2911,7 @@ class Quora_Importer {
         $url = isset( $_POST['url'] ) ? esc_url_raw( trim( $_POST['url'] ) ) : '';
         $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
         
-        if ( empty( $url ) || ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
+        if ( empty( $url ) || ! $this->validate_quora_url( $url ) ) {
             wp_send_json_error( array( 'message' => __( 'Veuillez saisir une URL valide.', 'quora-importer' ) ) );
         }
         
@@ -2741,6 +2935,548 @@ class Quora_Importer {
                 'message' => sprintf( __( 'Échec de la mise à jour : %s', 'quora-importer' ), $comments_res['error'] )
             ) );
         }
+    }
+
+    /**
+     * Debug parsing of an HTML file.
+     */
+    public function debug_parse_file( $html_file ) {
+        $parsed_posts = $this->parse_html_file( $html_file );
+        echo "Parsed " . count( $parsed_posts ) . " posts from file.\n";
+        foreach ( $parsed_posts as $post ) {
+            if ( stripos( serialize($post), 'Noether' ) !== false ) {
+                echo "--> FOUND Noether post!\n";
+                print_r($post);
+            }
+        }
+    }
+
+    /**
+     * Run database updates to synchronize titles, content, categories, tags, and Quora URLs.
+     */
+    public function run_database_updates() {
+        echo "Starting Quora posts update...\n";
+
+        // Path to Quora exports
+        $export_dir = '/home/goulu/Documents/develop/quora2wordpress/content';
+        if ( ! is_dir( $export_dir ) ) {
+            die( "Error: Quora export directory not found at $export_dir\n" );
+        }
+
+        // Find all index.html files in export dir
+        echo "Scanning for exports in $export_dir...\n";
+        $directory_iterator = new RecursiveDirectoryIterator( $export_dir );
+        $iterator = new RecursiveIteratorIterator( $directory_iterator );
+        $html_files = array();
+
+        foreach ( $iterator as $file ) {
+            if ( $file->isFile() && $file->getFilename() === 'index.html' ) {
+                $html_files[] = $file->getPathname();
+            }
+        }
+
+        echo "Found " . count( $html_files ) . " index.html files.\n";
+
+        // Load all WordPress posts
+        echo "Loading WordPress posts...\n";
+        $wp_posts = get_posts( array(
+            'post_type'      => 'post',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+        ) );
+        echo "Found " . count( $wp_posts ) . " posts in database.\n";
+
+        // Load quora_urls.json dictionary
+        $json_file = dirname( dirname( __FILE__ ) ) . '/scratch/quora_urls.json';
+        $dict_urls = array();
+        $slug_dict = array();
+        if ( file_exists( $json_file ) ) {
+            $decoded = json_decode( file_get_contents( $json_file ), true );
+            if ( is_array( $decoded ) ) {
+                foreach ( $decoded as $u ) {
+                    $dict_urls[strtolower($u)] = $u;
+                    
+                    // Index by slug
+                    $parsed = wp_parse_url( $u );
+                    if ( ! empty( $parsed['path'] ) ) {
+                        $path = trim( $parsed['path'], '/' );
+                        $slug = $path;
+                        if ( preg_match( '/^([^\/]+)\/answer\//i', $path, $matches ) ) {
+                            $slug = $matches[1];
+                        }
+                        $clean_slug = strtolower( remove_accents( $slug ) );
+                        $clean_slug = preg_replace( '/[^a-z0-9]/', '', $clean_slug );
+                        if ( ! empty( $clean_slug ) ) {
+                            $slug_dict[$clean_slug][] = $u;
+                        }
+                    }
+                }
+            }
+        }
+        echo "Loaded " . count( $dict_urls ) . " URLs and " . count( $slug_dict ) . " slugs from dictionary.\n";
+
+        // Find python executable for validation
+        $python_executable = 'python3';
+        foreach ( array( '/usr/bin/python3', '/usr/local/bin/python3', '/bin/python3', '/usr/bin/python' ) as $path ) {
+            if ( @is_executable( $path ) ) {
+                $python_executable = $path;
+                break;
+            }
+        }
+        echo "Using Python executable: $python_executable\n";
+
+        // Helper to test URL status code
+        $test_url_status = function( $url ) use ( $python_executable ) {
+            $py_cmd = 'import sys, cloudscraper; s = cloudscraper.create_scraper(); r = s.get(sys.argv[1], timeout=5); print(r.status_code)';
+            $cmd = escapeshellcmd( $python_executable ) . ' -c ' . escapeshellarg( $py_cmd ) . ' ' . escapeshellarg( $url );
+            $output = array();
+            $return_var = 0;
+            exec( $cmd, $output, $return_var );
+            $status_code = isset( $output[0] ) ? intval( trim( $output[0] ) ) : 0;
+            return $status_code;
+        };
+
+        // Process each html file
+        $matched_count = 0;
+        foreach ( $html_files as $html_file ) {
+            $dir = dirname( $html_file );
+            echo "\nProcessing file: $html_file\n";
+            
+            // Parse the html file
+            $parsed_posts = $this->parse_html_file( $html_file );
+            if ( empty( $parsed_posts ) ) {
+                echo "No posts parsed from this file.\n";
+                continue;
+            }
+            
+            foreach ( $parsed_posts as $post ) {
+                $type = ! empty( $post['type'] ) ? $post['type'] : '';
+                $raw_date = ! empty( $post['Creation time'] ) ? $post['Creation time'] : '';
+                $timestamp = $this->parse_quora_date( $raw_date );
+                if ( ! $timestamp ) {
+                    continue;
+                }
+                
+                $formatted_date = wp_date( 'Y-m-d H:i:s', $timestamp );
+                $clean_title = $this->get_post_title( $post, $type );
+                $clean_title = preg_replace( '/\[\/?math\]/i', '$', $clean_title );
+                
+                // Find matching WordPress post using resilient logic
+                $matched_post = null;
+                foreach ( $wp_posts as $wp_post ) {
+                    $wp_title_norm = strtolower( remove_accents( $wp_post->post_title ) );
+                    $wp_title_norm = preg_replace( '/[^a-z0-9]/', '', $wp_title_norm );
+                    
+                    $clean_title_norm = strtolower( remove_accents( $clean_title ) );
+                    $clean_title_norm = preg_replace( '/[^a-z0-9]/', '', $clean_title_norm );
+                    
+                    // Match 1: Exact title match
+                    if ( ! empty( $wp_title_norm ) && $wp_title_norm === $clean_title_norm ) {
+                        $matched_post = $wp_post;
+                        break;
+                    }
+                    
+                    // Match by date timezone flexible + title overlap
+                    $wp_time = strtotime( $wp_post->post_date );
+                    $wp_gmt_time = strtotime( $wp_post->post_date_gmt );
+                    if ( $timestamp ) {
+                        $diff_local = abs( $wp_time - $timestamp );
+                        $diff_gmt = abs( $wp_gmt_time - $timestamp );
+                        $time_close = ( $diff_local <= 43200 || $diff_gmt <= 43200 );
+                        
+                        if ( $time_close ) {
+                            if ( ! empty( $wp_title_norm ) && ! empty( $clean_title_norm ) ) {
+                                if ( false !== strpos( $clean_title_norm, $wp_title_norm ) || false !== strpos( $wp_title_norm, $clean_title_norm ) ) {
+                                    $matched_post = $wp_post;
+                                    break;
+                                }
+                            }
+                            // Or extremely close time (within 5 mins)
+                            if ( $diff_local <= 300 || $diff_gmt <= 300 ) {
+                                $matched_post = $wp_post;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if ( $matched_post ) {
+                    // Check manual override
+                    $is_overridden = get_post_meta( $matched_post->ID, '_quora_url_override', true );
+                    if ( $is_overridden === '1' ) {
+                        echo "Matched WordPress Post ID: {$matched_post->ID} (URL locked - skipping updates)\n";
+                        continue;
+                    }
+
+                    // Check if it's a draft
+                    $is_draft = ( strpos( strtolower( $post['type'] ), 'brouillon' ) !== false || strpos( strtolower( $post['type'] ), 'draft' ) !== false );
+                    if ( $is_draft ) {
+                        echo "Matched WordPress Post ID: {$matched_post->ID} (Draft - skipping URL validation)\n";
+                        update_post_meta( $matched_post->ID, '_quora_url_status', 'valid' );
+                        delete_post_meta( $matched_post->ID, '_quora_url' );
+                        delete_post_meta( $matched_post->ID, '_quora_candidate_urls' );
+                        continue;
+                    }
+
+                    $matched_count++;
+                    echo "Matched WordPress Post ID: {$matched_post->ID}\n";
+                    echo "  Old Title: '{$matched_post->post_title}'\n";
+                    echo "  New Title: '{$clean_title}'\n";
+                    
+                    // Clean/process content
+                    $content = ! empty( $post['Content'] ) ? $post['Content'] : '';
+                    $content = preg_replace( '/\[\/?math\]/i', '$', $content );
+                    $content = $this->clean_html_newlines( $content );
+                    $content = $this->process_html_links( $content );
+                    $content = $this->maybe_remove_bold_title( $content, $clean_title, $post );
+                    
+                    // Update title and content if changed
+                    $update_data = array( 'ID' => $matched_post->ID );
+                    $needs_update = false;
+                    if ( $matched_post->post_title !== $clean_title ) {
+                        $update_data['post_title'] = $clean_title;
+                        $needs_update = true;
+                    }
+                    if ( $matched_post->post_content !== $content ) {
+                        $update_data['post_content'] = $content;
+                        $needs_update = true;
+                    }
+                    if ( $needs_update ) {
+                        wp_update_post( $update_data );
+                        echo "  -> Updated post title/content.\n";
+                    }
+                    
+                    // Generate candidate URLs
+                    $candidate_urls = $this->get_candidate_urls( $post, $dir, $matched_post->post_author );
+                    
+                    // Look up candidates in slug dictionary to find exact match if any
+                    $dict_matches = array();
+                    foreach ( $candidate_urls as $cand ) {
+                        $cand_lower = strtolower( $cand );
+                        if ( isset( $dict_urls[$cand_lower] ) ) {
+                            $dict_matches[] = $dict_urls[$cand_lower];
+                        }
+                        $parsed = wp_parse_url( $cand );
+                        if ( ! empty( $parsed['path'] ) ) {
+                            $path = trim( $parsed['path'], '/' );
+                            $slug = $path;
+                            if ( preg_match( '/^([^\/]+)\/answer\//i', $path, $matches ) ) {
+                                $slug = $matches[1];
+                            }
+                            $clean_slug = strtolower( remove_accents( $slug ) );
+                            $clean_slug = preg_replace( '/[^a-z0-9]/', '', $clean_slug );
+                            if ( isset( $slug_dict[$clean_slug] ) ) {
+                                foreach ( $slug_dict[$clean_slug] as $matched_url ) {
+                                    $dict_matches[] = $matched_url;
+                                }
+                            }
+                        }
+                    }
+                    $dict_matches = array_unique( $dict_matches );
+                    if ( ! empty( $dict_matches ) ) {
+                        $candidate_urls = array_values( array_unique( array_merge( $dict_matches, $candidate_urls ) ) );
+                    }
+                    
+                    update_post_meta( $matched_post->ID, '_quora_candidate_urls', $candidate_urls );
+                    echo "  Candidates: " . implode( ', ', $candidate_urls ) . "\n";
+                    
+                    // Validate the first candidate
+                    if ( ! empty( $candidate_urls ) ) {
+                        $url_to_test = $candidate_urls[0];
+                        $is_valid_dict = false;
+                        foreach ( $candidate_urls as $cand ) {
+                            $cand_lower = strtolower( $cand );
+                            if ( isset( $dict_urls[$cand_lower] ) ) {
+                                $url_to_test = $dict_urls[$cand_lower];
+                                $is_valid_dict = true;
+                                break;
+                            }
+                        }
+                        
+                        if ( $is_valid_dict ) {
+                            $status = 'valid';
+                            echo "  Dictionary validation: SUCCESS ($url_to_test)\n";
+                        } else {
+                            echo "  Testing URL via scraper: $url_to_test\n";
+                            $status_code = $test_url_status( $url_to_test );
+                            echo "  Status Code: $status_code\n";
+                            
+                            $status = 'untested';
+                            if ( $status_code === 200 ) {
+                                $status = 'valid';
+                            } elseif ( $status_code === 404 ) {
+                                $status = 'invalid';
+                            } else {
+                                $status = ( $status_code > 0 && $status_code !== 404 ) ? 'valid' : 'invalid';
+                            }
+                        }
+                        
+                        update_post_meta( $matched_post->ID, '_quora_url', $url_to_test );
+                        update_post_meta( $matched_post->ID, '_quora_url_status', $status );
+                        echo "  -> Updated _quora_url = $url_to_test, _quora_url_status = $status\n";
+                    }
+                }
+            }
+        }
+
+        // Second Pass: Align and repair any remaining invalid/unmatched database posts directly
+        echo "\nStarting Second Pass: Repairing unmatched/invalid posts directly in database...\n";
+        $invalid_posts = get_posts( array(
+            'post_type'      => 'post',
+            'post_status'    => 'any',
+            'posts_per_page' => -1,
+            'meta_query'     => array(
+                'relation' => 'OR',
+                array(
+                    'key'     => '_quora_url_status',
+                    'value'   => 'valid',
+                    'compare' => '!=',
+                ),
+                array(
+                    'key'     => '_quora_url_status',
+                    'compare' => 'NOT EXISTS',
+                ),
+            ),
+        ) );
+
+        echo "Found " . count( $invalid_posts ) . " posts with invalid or missing Quora URL status.\n";
+
+        foreach ( $invalid_posts as $db_post ) {
+            // Check manual override
+            $is_overridden = get_post_meta( $db_post->ID, '_quora_url_override', true );
+            if ( $is_overridden === '1' ) {
+                echo "\nPost ID: {$db_post->ID} | Title: '{$db_post->post_title}' (URL locked - skipping updates)\n";
+                continue;
+            }
+
+            echo "\nRepairing Post ID: {$db_post->ID} | Current Title: '{$db_post->post_title}'\n";
+            
+            // Try to find a valid URL using candidates
+            $candidates = array();
+            
+            // 1. Get existing URL if any
+            $existing_url = get_post_meta( $db_post->ID, '_quora_url', true );
+            if ( $existing_url && $this->validate_quora_url( $existing_url ) ) {
+                $candidates[] = $existing_url;
+                
+                // If it's a subdomain/space post, we can try to extract domain and reconstruct slug
+                $parsed = wp_parse_url( $existing_url );
+                if ( ! empty( $parsed['host'] ) ) {
+                    $domain = $parsed['host'];
+                    
+                    // Try slug variants:
+                    // e.g. replacing 'nest' with 'n-est', 'l' with 'l-e', 'd' with 'd-e' etc.
+                    $path = isset( $parsed['path'] ) ? trim( $parsed['path'], '/' ) : '';
+                    if ( $path && stripos( $domain, 'quora.com' ) !== false ) {
+                        // Check if path has /answer/
+                        $is_answer = false;
+                        $slug = $path;
+                        if ( preg_match( '/^([^\/]+)\/answer\//i', $path, $matches ) ) {
+                            $is_answer = true;
+                            $slug = $matches[1];
+                        }
+                        
+                        // Try substituting nest with n-est
+                        if ( stripos( $slug, 'nest' ) !== false ) {
+                            $new_slug = str_ireplace( 'nest', 'n-est', $slug );
+                            $new_url = "https://{$domain}/{$new_slug}";
+                            if ( $is_answer ) {
+                                $new_url .= "/answer/Philippe-Guglielmetti";
+                            }
+                            $candidates[] = $new_url;
+                            
+                            $new_url_dg = "https://{$domain}/{$new_slug}";
+                            if ( $is_answer ) {
+                                $new_url_dg .= "/answer/Dr-Goulu";
+                            }
+                            $candidates[] = $new_url_dg;
+                        }
+                    }
+                }
+            }
+            
+            // 2. Generate candidates from post title
+            $title = $db_post->post_title;
+            // Clean title first
+            $title = preg_replace( '/\[\/?math\]/i', '', $title );
+            
+            // Reconstruct profiles slug
+            $profile_slugs = array( 'Philippe-Guglielmetti', 'Dr-Goulu' );
+            $nickname = get_user_meta( $db_post->post_author, 'nickname', true );
+            if ( ! empty( $nickname ) ) {
+                $normalized = remove_accents( $nickname );
+                $cleaned_name = preg_replace( '/[^A-Za-z0-9_\-\s]/', '', $normalized );
+                $ps = str_replace( array( ' ', '_' ), '-', $cleaned_name );
+                $ps = preg_replace( '/-+/', '-', $ps );
+                if ( ! in_array( $ps, $profile_slugs ) ) {
+                    array_unshift( $profile_slugs, $ps );
+                }
+            }
+            
+            // Check domain
+            $domain = 'fr.quora.com';
+            if ( ! empty( $existing_url ) ) {
+                $parsed = wp_parse_url( $existing_url );
+                if ( ! empty( $parsed['host'] ) ) {
+                    $domain = $parsed['host'];
+                }
+            }
+            
+            // Helper to add candidate permutations
+            $add_slug_candidates = function( $t ) use ( &$candidates, $domain, $profile_slugs ) {
+                foreach ( array( true, false ) as $replace_apostrophes ) {
+                    $slug = $this->quora_slugify( $t, $replace_apostrophes );
+                    if ( empty( $slug ) ) {
+                        continue;
+                    }
+                    
+                    // Generate accented slug
+                    $slugs_to_try = array( $slug );
+                    
+                    // Generate unaccented slug
+                    $unaccented = remove_accents( $slug );
+                    if ( $unaccented !== $slug ) {
+                        $slugs_to_try[] = $unaccented;
+                    }
+                    
+                    foreach ( $slugs_to_try as $s ) {
+                        if ( stripos( $domain, 'quora.com' ) !== false && stripos( $domain, 'fr.quora.com' ) === false && stripos( $domain, 'www.quora.com' ) === false ) {
+                            // Space post (subdomain space)
+                            $candidates[] = "https://{$domain}/{$s}";
+                        } else {
+                            // Standard post (can be question or answer)
+                            $candidates[] = "https://{$domain}/{$s}";
+                            foreach ( $profile_slugs as $ps ) {
+                                $candidates[] = "https://{$domain}/{$s}/answer/{$ps}";
+                            }
+                        }
+                    }
+                }
+            };
+            
+            // If the title is NOT truncated, add candidates based on full title
+            if ( substr( $title, -3 ) !== '...' ) {
+                $add_slug_candidates( $title );
+                
+                // Also try truncating at punctuation marks (like colon, period, question mark)
+                $punctuation_marks = array( ':', '.', '?', '!', '(' );
+                foreach ( $punctuation_marks as $punc ) {
+                    $pos = strpos( $title, $punc );
+                    if ( $pos !== false && $pos > 10 ) {
+                        $truncated_title = trim( substr( $title, 0, $pos ) );
+                        $add_slug_candidates( $truncated_title );
+                    }
+                }
+            }
+            
+            // Try word prefixes of the title if the title is long
+            $title_words = explode( ' ', $title );
+            if ( count( $title_words ) > 10 ) {
+                foreach ( array( 10, 15, 20, 25, 30 ) as $word_count ) {
+                    if ( count( $title_words ) >= $word_count ) {
+                        $prefix_title = implode( ' ', array_slice( $title_words, 0, $word_count ) );
+                        $add_slug_candidates( $prefix_title );
+                    }
+                }
+            }
+            
+            // If title IS truncated or as fallback, try prefixes of post_content
+            $content_text = trim( wp_strip_all_tags( $db_post->post_content ) );
+            $content_text = preg_replace( '/\s+/', ' ', $content_text );
+            $words = explode( ' ', $content_text );
+            
+            if ( count( $words ) > 1 ) {
+                // Try first 4, 6, 8, 10, 12, 14 words
+                foreach ( array( 4, 6, 8, 10, 12, 14 ) as $word_count ) {
+                    if ( count( $words ) >= $word_count ) {
+                        $prefix_title = implode( ' ', array_slice( $words, 0, $word_count ) );
+                        $add_slug_candidates( $prefix_title );
+                    }
+                }
+            }
+            
+            // Clean up and unique candidates
+            $candidates = array_unique( array_filter( $candidates ) );
+            
+            // Validate candidates sequentially and stop at the first success
+            $valid_url = '';
+            
+            // First check candidates against dictionary
+            foreach ( $candidates as $candidate_url ) {
+                $cand_lower = strtolower( $candidate_url );
+                if ( isset( $dict_urls[$cand_lower] ) ) {
+                    $valid_url = $dict_urls[$cand_lower];
+                    echo "  Dictionary validation: SUCCESS ($valid_url)\n";
+                    break;
+                }
+                
+                // Also check slug matching
+                $parsed = wp_parse_url( $candidate_url );
+                if ( ! empty( $parsed['path'] ) ) {
+                    $path = trim( $parsed['path'], '/' );
+                    $slug = $path;
+                    if ( preg_match( '/^([^\/]+)\/answer\//i', $path, $matches ) ) {
+                        $slug = $matches[1];
+                    }
+                    $clean_slug = strtolower( remove_accents( $slug ) );
+                    $clean_slug = preg_replace( '/[^a-z0-9]/', '', $clean_slug );
+                    if ( isset( $slug_dict[$clean_slug] ) ) {
+                        $valid_url = $slug_dict[$clean_slug][0];
+                        echo "  Dictionary slug validation: SUCCESS ($valid_url)\n";
+                        break;
+                    }
+                }
+            }
+            
+            if ( ! $valid_url ) {
+                foreach ( $candidates as $candidate_url ) {
+                    echo "  Testing direct candidate: $candidate_url\n";
+                    $status_code = $test_url_status( $candidate_url );
+                    echo "  Status Code: $status_code\n";
+                    
+                    if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
+                        $valid_url = $candidate_url;
+                        break;
+                    }
+                }
+            }
+            
+            if ( $valid_url ) {
+                // Recover correct title if the candidate URL matched a different slug/title
+                $new_title = $db_post->post_title;
+                if ( substr( $db_post->post_title, -3 ) === '...' ) {
+                    $mock_post = array(
+                        'Content' => $db_post->post_content,
+                        'type' => $is_answer ? 'Répondre' : 'Question',
+                        'Content language' => ( strpos( $domain, 'fr.quora' ) !== false || strpos( $domain, 'reponsesfrequentes' ) !== false ) ? 'Français' : 'English',
+                        'url' => $valid_url,
+                    );
+                    $recovered_title = $this->get_post_title( $mock_post, $mock_post['type'] );
+                    if ( $recovered_title && substr( $recovered_title, -3 ) !== '...' ) {
+                        $new_title = $recovered_title;
+                    }
+                }
+                
+                $update_data = array( 'ID' => $db_post->ID );
+                $needs_update = false;
+                if ( $db_post->post_title !== $new_title ) {
+                    $update_data['post_title'] = $new_title;
+                    $needs_update = true;
+                }
+                if ( $needs_update ) {
+                    wp_update_post( $update_data );
+                    echo "  -> Corrected Title to: '{$new_title}'\n";
+                }
+                
+                update_post_meta( $db_post->ID, '_quora_url', $valid_url );
+                update_post_meta( $db_post->ID, '_quora_url_status', 'valid' );
+                echo "  -> FOUND and set valid _quora_url = $valid_url\n";
+            } else {
+                echo "  -> Could not find a valid URL candidate. Post remains invalid.\n";
+            }
+        }
+
+        echo "\nUpdate complete! Matched and processed $matched_count posts.\n";
     }
 }
 
