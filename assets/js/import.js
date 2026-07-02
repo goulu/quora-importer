@@ -11,6 +11,7 @@ jQuery(document).ready(function($) {
     let linkTemplate = '';
     let enabledTypes = [];
     let extractTopics = 0;
+    let r2wSupport = 0;
     let importComments = 'none';
     
     let currentIndex = 0;
@@ -240,6 +241,7 @@ jQuery(document).ready(function($) {
         importImages = $('#quora-import-images').is(':checked') ? 1 : 0;
         setFeatured = $('#quora-set-featured').is(':checked') ? 1 : 0;
         extractTopics = $('#quora-extract-topics').is(':checked') ? 1 : 0;
+        r2wSupport = $('#quora-r2w-support').is(':checked') ? 1 : 0;
         importComments = $('#quora-import-comments').val();
         
         enabledTypes = [];
@@ -310,6 +312,7 @@ jQuery(document).ready(function($) {
                 import_images: importImages,
                 set_featured: setFeatured,
                 extract_topics: extractTopics,
+                r2w_support: r2wSupport,
                 import_comments: importComments,
                 enabled_types: enabledTypes
             },

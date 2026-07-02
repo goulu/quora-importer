@@ -262,7 +262,24 @@ class Quora_Importer {
                 </div>
                 
                 <div class="quora-form-section">
-                    <h4><?php esc_html_e( '5. Comment Settings', 'quora-importer' ); ?></h4>
+                    <h4><?php esc_html_e( '5. Wikipedia / Reference 2 Wiki', 'quora-importer' ); ?></h4>
+                    <div class="quora-form-row checkbox-row">
+                        <?php
+                        if ( ! function_exists( 'is_plugin_active' ) ) {
+                            include_once ABSPATH . 'wp-admin/includes/plugin.php';
+                        }
+                        $r2w_active = is_plugin_active( 'reference-2-wiki/reference2wiki.php' );
+                        ?>
+                        <input type="checkbox" name="r2w_support" id="quora-r2w-support" value="1" <?php checked( $r2w_active ); ?> />
+                        <label for="quora-r2w-support">
+                            <strong><?php esc_html_e( 'Support for "Reference 2 Wiki"', 'quora-importer' ); ?></strong>
+                            <span class="help-desc"><?php esc_html_e( 'Automatically convert Wikipedia links in imported articles and comments to [[lang|article|text]] syntax.', 'quora-importer' ); ?></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="quora-form-section">
+                    <h4><?php esc_html_e( '6. Comment Settings', 'quora-importer' ); ?></h4>
                     <div class="quora-form-row">
                         <label for="quora-import-comments">
                             <strong><?php esc_html_e( 'Import comments from Quora', 'quora-importer' ); ?></strong>
@@ -520,6 +537,8 @@ class Quora_Importer {
         $import_images = ! empty( $_POST['import_images'] );
         $set_featured = ! empty( $_POST['set_featured'] );
         $extract_topics = ! empty( $_POST['extract_topics'] );
+        $r2w_support = ! empty( $_POST['r2w_support'] );
+        update_option( 'quora_importer_r2w_support', $r2w_support ? '1' : '0' );
         $import_comments = isset( $_POST['import_comments'] ) ? sanitize_text_field( wp_unslash( $_POST['import_comments'] ) ) : 'none';
         $link_position = isset( $_POST['link_position'] ) ? sanitize_text_field( wp_unslash( $_POST['link_position'] ) ) : 'none';
         $link_template = isset( $_POST['link_template'] ) ? wp_kses_post( wp_unslash( $_POST['link_template'] ) ) : '';
@@ -580,6 +599,9 @@ class Quora_Importer {
         $content = preg_replace( '/\[\/?math\]/i', '$', $content );
         $content = $this->clean_html_newlines( $content );
         $content = $this->process_html_links( $content );
+        if ( $r2w_support ) {
+            $content = $this->format_wikipedia_links_to_r2w( $content );
+        }
         $content = $this->maybe_remove_bold_title( $content, $title, $post );
         
         // Set post status based on condition
@@ -1465,6 +1487,33 @@ class Quora_Importer {
     }
     
     /**
+     * Converts Wikipedia <a> tags to Reference 2 Wiki syntax [[lang|article|text]].
+     */
+    public function format_wikipedia_links_to_r2w( $content ) {
+        if ( empty( $content ) ) {
+            return '';
+        }
+
+        $pattern = '/<a\s+[^>]*href=["\'](https?:\/\/[a-z0-9\-]+\.wikipedia\.org\/wiki\/[^"\']+)["\'][^>]*>(.*?)<\/a>/is';
+
+        return preg_replace_callback( $pattern, function( $matches ) {
+            $url = html_entity_decode( $matches[1], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            $link_text = $matches[2];
+
+            if ( preg_match( '/^https?:\/\/([a-z0-9\-]+)\.wikipedia\.org\/wiki\/([^?#]+)/i', $url, $url_matches ) ) {
+                $lang = $url_matches[1];
+                $slug = rawurldecode( $url_matches[2] );
+                $clean_text = trim( wp_strip_all_tags( $link_text ) );
+                
+                return '[[' . $lang . '|' . $slug . '|' . $clean_text . ']]';
+            }
+
+            return $matches[0];
+        }, $content );
+    }
+
+    
+    /**
      * Sideload images from content html and replace local sources with WordPress URLs
      */
     private function sideload_content_images( $content, $extracted_dir, $set_featured, $post_date ) {
@@ -2320,6 +2369,9 @@ class Quora_Importer {
             $author = isset( $c['author'] ) ? $c['author'] : 'Anonyme';
             $profile_url = isset( $c['profile_url'] ) ? $c['profile_url'] : '';
             $text = isset( $c['text'] ) ? $c['text'] : '';
+            if ( get_option( 'quora_importer_r2w_support' ) === '1' ) {
+                $text = $this->format_wikipedia_links_to_r2w( $text );
+            }
             $date_text = isset( $c['date'] ) ? $c['date'] : '';
             $parent_quora_id = isset( $c['parent_id'] ) ? $c['parent_id'] : '';
             
@@ -3128,6 +3180,9 @@ class Quora_Importer {
                     $content = preg_replace( '/\[\/?math\]/i', '$', $content );
                     $content = $this->clean_html_newlines( $content );
                     $content = $this->process_html_links( $content );
+                    if ( get_option( 'quora_importer_r2w_support' ) === '1' ) {
+                        $content = $this->format_wikipedia_links_to_r2w( $content );
+                    }
                     $content = $this->maybe_remove_bold_title( $content, $clean_title, $post );
                     
                     // Update title and content if changed
