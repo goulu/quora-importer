@@ -6,9 +6,114 @@ import json
 import re
 from bs4 import BeautifulSoup
 from selenium import webdriver
+from selenium.webdriver.common.by import By
+
+def expand_all_comments(driver):
+    # Remove cookie consent banner to avoid overlay blockage
+    try:
+        driver.execute_script("document.querySelectorAll('[id*=\"onetrust\"], [class*=\"onetrust\"], [id*=\"consent\"]').forEach(el => el.remove());")
+    except Exception:
+        pass
+        
+    for attempt in range(5):
+        expanded_something = False
+        
+        # 1. Click collapsed comment previews (e.g. divs with class qu-bg--darken and qu-cursor--pointer)
+        try:
+            collapsed_elms = driver.find_elements(By.CSS_SELECTOR, "div.qu-bg--darken.qu-cursor--pointer")
+            for el in collapsed_elms:
+                try:
+                    driver.execute_script("arguments[0].click();", el)
+                    expanded_something = True
+                    time.sleep(0.5)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+            
+        # 2. Click comment/reply expansion buttons/spans/links/divs
+        try:
+            all_clickable = driver.find_elements(By.XPATH, "//button | //span | //a | //div[@role='button']")
+            for el in all_clickable:
+                try:
+                    text = el.text.strip()
+                    if not text:
+                        continue
+                    text_lower = text.lower()
+                    
+                    is_match = False
+                    if any(p in text_lower for p in [
+                        "afficher les réponses", 
+                        "afficher la réponse", 
+                        "afficher plus de commentaires",
+                        "plus de commentaires",
+                        "afficher plus de réponses",
+                        "réponses précédentes",
+                        "show replies",
+                        "view replies",
+                        "show more comments",
+                        "more comments"
+                    ]):
+                        is_match = True
+                    elif re.search(r'\b\d+\s+(réponses?|replies?)\b', text_lower):
+                        is_match = True
+                        
+                    if is_match:
+                        driver.execute_script("arguments[0].click();", el)
+                        expanded_something = True
+                        time.sleep(0.5)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+            
+        if not expanded_something:
+            break
 
 # Prepend standard system paths to process environment
 os.environ["PATH"] = "/usr/bin:/bin:/usr/local/bin:" + os.environ.get("PATH", "")
+
+def clean_comment_html(soup, text_div):
+    # 1. Replace link cards with simple <a> tags
+    for a in text_div.find_all('a'):
+        if a.find('div'):
+            href = a.get('href', '')
+            title_div = a.find(class_=re.compile(r'qu-truncateLines--3'))
+            if title_div:
+                title = title_div.get_text(strip=True)
+            else:
+                first_div = a.find('div')
+                title = first_div.get_text(strip=True) if first_div else href
+            
+            clean_link = soup.new_tag('a', href=href, target='_blank')
+            clean_link.string = title
+            a.replace_with(clean_link)
+        else:
+            href = a.get('href', '')
+            a.attrs = {'href': href, 'target': '_blank'}
+            
+    # 2. Remove divs that just display a raw URL (like the footer of a link card)
+    for div in text_div.find_all('div'):
+        div_text = div.get_text(strip=True)
+        if div_text.startswith('http://') or div_text.startswith('https://'):
+            div.decompose()
+            
+    # 3. Clean up the tags and attributes bottom-up
+    allowed_tags = {'p', 'a', 'b', 'strong', 'i', 'em', 'code', 'pre', 'br'}
+    for tag in list(text_div.find_all(True)):
+        if tag.name not in allowed_tags:
+            tag.unwrap()
+        else:
+            if tag.name == 'a':
+                href = tag.get('href', '')
+                tag.attrs = {'href': href, 'target': '_blank'}
+            else:
+                tag.attrs = {}
+                
+    parts = []
+    for child in text_div.children:
+        parts.append(str(child))
+    return "".join(parts).strip()
 
 def scrape_comments(urls):
     # Pre-check URLs using cloudscraper to filter out 404s and find the correct one quickly.
@@ -105,6 +210,7 @@ def scrape_comments(urls):
                 break
             
             if is_valid:
+                expand_all_comments(driver)
                 successful_url = url
                 html = driver.page_source
                 driver.quit()
@@ -190,7 +296,7 @@ def scrape_comments(urls):
                 comment_id = f"fallback_{len(seen_comments)}"
                 
             text_div = wrapper.find(lambda el: el.name == 'div' and el.get('class') == ['q-text'])
-            comment_text = text_div.get_text(strip=True) if text_div else ""
+            comment_text = clean_comment_html(soup, text_div) if text_div else ""
                 
             distance = 0
             p = wrapper
