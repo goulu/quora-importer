@@ -374,22 +374,30 @@ class Quora_Importer {
             wp_send_json_error( array( 'message' => __( 'No files received.', 'quora-importer' ) ) );
         }
         
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- $_FILES is validated below via checking file extension and using WordPress APIs.
         $uploaded_files = array();
-        if ( ! empty( $_FILES['files'] ) && is_array( $_FILES['files']['name'] ) ) {
+        if ( isset( $_FILES['files'] ) && is_array( $_FILES['files'] ) && isset( $_FILES['files']['name'] ) && is_array( $_FILES['files']['name'] ) ) {
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
             $files_data = $_FILES['files'];
             $count = count( $files_data['name'] );
             for ( $i = 0; $i < $count; $i++ ) {
-                $uploaded_files[] = array(
-                    'name'     => $files_data['name'][$i],
-                    'type'     => $files_data['type'][$i],
-                    'tmp_name' => $files_data['tmp_name'][$i],
-                    'error'    => $files_data['error'][$i],
-                    'size'     => $files_data['size'][$i],
-                );
+                if ( isset( $files_data['name'][$i] ) && isset( $files_data['tmp_name'][$i] ) ) {
+                    $uploaded_files[] = array(
+                        'name'     => sanitize_file_name( wp_unslash( $files_data['name'][$i] ) ),
+                        'type'     => isset( $files_data['type'][$i] ) ? sanitize_text_field( wp_unslash( $files_data['type'][$i] ) ) : '',
+                        'tmp_name' => sanitize_text_field( wp_unslash( $files_data['tmp_name'][$i] ) ),
+                        'error'    => isset( $files_data['error'][$i] ) ? intval( $files_data['error'][$i] ) : 0,
+                        'size'     => isset( $files_data['size'][$i] ) ? intval( $files_data['size'][$i] ) : 0,
+                    );
+                }
             }
-        } elseif ( ! empty( $_FILES['file'] ) ) {
-            $uploaded_files[] = $_FILES['file'];
+        } elseif ( isset( $_FILES['file'] ) && is_array( $_FILES['file'] ) && isset( $_FILES['file']['name'] ) && isset( $_FILES['file']['tmp_name'] ) ) {
+            $uploaded_files[] = array(
+                'name'     => sanitize_file_name( wp_unslash( $_FILES['file']['name'] ) ),
+                'type'     => isset( $_FILES['file']['type'] ) ? sanitize_text_field( wp_unslash( $_FILES['file']['type'] ) ) : '',
+                'tmp_name' => sanitize_text_field( wp_unslash( $_FILES['file']['tmp_name'] ) ),
+                'error'    => isset( $_FILES['file']['error'] ) ? intval( $_FILES['file']['error'] ) : 0,
+                'size'     => isset( $_FILES['file']['size'] ) ? intval( $_FILES['file']['size'] ) : 0,
+            );
         }
         
         global $wp_filesystem;
@@ -418,24 +426,28 @@ class Quora_Importer {
         $all_posts = array();
         $has_images = false;
         $types_count = array();
+        $upload_warnings = array();
         
         foreach ( $uploaded_files as $idx => $file ) {
             $ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
             if ( ! in_array( $ext, array( 'zip', 'html' ) ) ) {
-                $this->recursive_rmdir( $session_dir );
-                wp_send_json_error( array( 'message' => sprintf( __( 'Invalid file extension for %s. Please use .zip or .html.', 'quora-importer' ), esc_html( $file['name'] ) ) ) );
+                // translators: %s: File name.
+                $upload_warnings[] = sprintf( __( 'Fichier ignoré : extension invalide pour %s. Veuillez utiliser .zip ou .html.', 'quora-importer' ), esc_html( $file['name'] ) );
+                continue;
             }
             
             $file_dir = $session_dir . '/file_' . $idx;
             if ( ! wp_mkdir_p( $file_dir ) ) {
-                $this->recursive_rmdir( $session_dir );
-                wp_send_json_error( array( 'message' => __( 'Could not create temporary subdirectory.', 'quora-importer' ) ) );
+                // translators: %s: File name.
+                $upload_warnings[] = sprintf( __( 'Fichier ignoré : impossible de créer le dossier temporaire pour %s.', 'quora-importer' ), esc_html( $file['name'] ) );
+                continue;
             }
             
             $uploaded_file_path = $file_dir . '/' . basename( $file['name'] );
             if ( ! $wp_filesystem->copy( $file['tmp_name'], $uploaded_file_path ) ) {
-                $this->recursive_rmdir( $session_dir );
-                wp_send_json_error( array( 'message' => sprintf( __( 'Failed to move uploaded file %s.', 'quora-importer' ), esc_html( $file['name'] ) ) ) );
+                // translators: %s: File name.
+                $upload_warnings[] = sprintf( __( 'Fichier ignoré : échec du déplacement du fichier %s.', 'quora-importer' ), esc_html( $file['name'] ) );
+                continue;
             }
             
             $extracted_dir = $file_dir;
@@ -447,9 +459,9 @@ class Quora_Importer {
                 wp_delete_file( $uploaded_file_path );
                 
                 if ( is_wp_error( $unzip_result ) ) {
-                    $this->recursive_rmdir( $session_dir );
                     // translators: %1$s: filename, %2$s: error message.
-                    wp_send_json_error( array( 'message' => sprintf( __( 'ZIP extraction failed for %1$s: %2$s', 'quora-importer' ), esc_html( $file['name'] ), $unzip_result->get_error_message() ) ) );
+                    $upload_warnings[] = sprintf( __( 'Fichier ignoré : échec de l\'extraction du ZIP %1$s : %2$s', 'quora-importer' ), esc_html( $file['name'] ), $unzip_result->get_error_message() );
+                    continue;
                 }
                 
                 $index_html_path = $this->find_file_recursive( $file_dir, 'index.html' );
@@ -459,8 +471,9 @@ class Quora_Importer {
                         $file_has_images = true;
                     }
                 } else {
-                    $this->recursive_rmdir( $session_dir );
-                    wp_send_json_error( array( 'message' => sprintf( __( 'Could not find index.html inside the ZIP archive %s.', 'quora-importer' ), esc_html( $file['name'] ) ) ) );
+                    // translators: %s: File name.
+                    $upload_warnings[] = sprintf( __( 'Fichier ignoré : index.html introuvable dans le ZIP %s.', 'quora-importer' ), esc_html( $file['name'] ) );
+                    continue;
                 }
             } else {
                 $index_html_path = $uploaded_file_path;
@@ -468,8 +481,9 @@ class Quora_Importer {
             
             $posts = $this->parse_html_file( $index_html_path );
             if ( false === $posts || empty( $posts ) ) {
-                $this->recursive_rmdir( $session_dir );
-                wp_send_json_error( array( 'message' => sprintf( __( 'No eligible posts found inside %s.', 'quora-importer' ), esc_html( $file['name'] ) ) ) );
+                // translators: %s: File name.
+                $upload_warnings[] = sprintf( __( 'Fichier ignoré : aucun article éligible trouvé dans %s.', 'quora-importer' ), esc_html( $file['name'] ) );
+                continue;
             }
             
             foreach ( $posts as $post ) {
@@ -486,6 +500,11 @@ class Quora_Importer {
             if ( $file_has_images ) {
                 $has_images = true;
             }
+        }
+        
+        if ( empty( $all_posts ) ) {
+            $this->recursive_rmdir( $session_dir );
+            wp_send_json_error( array( 'message' => __( 'Aucun article éligible trouvé dans les fichiers importés.', 'quora-importer' ) ) );
         }
         
         // Try to guess default author name from folders
@@ -515,7 +534,8 @@ class Quora_Importer {
             'total_posts'    => count( $all_posts ),
             'post_types'     => $types_count,
             'guessed_author' => $guessed_author,
-            'has_images'     => $has_images
+            'has_images'     => $has_images,
+            'warnings'       => $upload_warnings
         ) );
     }
     
@@ -868,21 +888,27 @@ class Quora_Importer {
         $log_type = 'info';
         $warnings = array();
         if ( $extract_topics && ! empty( $this->last_topic_error ) ) {
+            // translators: %s: Topic error message.
             $warnings[] = sprintf( __( 'Topic extraction failed (%s)', 'quora-importer' ), $this->last_topic_error );
         }
         if ( ! empty( $comments_warning ) ) {
+            // translators: %s: Comment error message.
             $warnings[] = sprintf( __( 'Comment import failed (%s)', 'quora-importer' ), $comments_warning );
         }
         
         $msg_parts = array();
+        // translators: %d: WordPress Post ID.
         $msg_parts[] = sprintf( __( 'Post imported successfully (ID: %d)', 'quora-importer' ), $post_id );
         if ( $images_imported > 0 ) {
+            // translators: %d: count of images.
             $msg_parts[] = sprintf( _n( '%d image', '%d images', $images_imported, 'quora-importer' ), $images_imported );
         }
         if ( ! empty( $extracted_topics ) ) {
+            // translators: %d: count of topics.
             $msg_parts[] = sprintf( _n( '%d topic', '%d topics', count( $extracted_topics ), 'quora-importer' ), count( $extracted_topics ) );
         }
         if ( $comments_imported > 0 ) {
+            // translators: %d: count of comments.
             $msg_parts[] = sprintf( _n( '%d comment', '%d comments', $comments_imported, 'quora-importer' ), $comments_imported );
         }
         
@@ -2370,7 +2396,7 @@ class Quora_Importer {
                     $label = preg_replace_callback( '/\\\\u([0-9a-fA-F]{4})/', function( $match ) {
                         return mb_convert_encoding( pack( 'H*', $match[1] ), 'UTF-8', 'UCS-2BE' );
                     }, $label );
-                    $label = trim( strip_tags( $label ) );
+                    $label = trim( wp_strip_all_tags( $label ) );
                     $label = html_entity_decode( $label, ENT_QUOTES, 'UTF-8' );
                     if ( ! empty( $label ) && ! in_array( $label, $topics, true ) ) {
                         if ( strlen( $label ) < 50 ) {
@@ -2385,7 +2411,7 @@ class Quora_Importer {
         if ( empty( $topics ) && preg_match_all( '/href=["\'][^"\']*\/topic\/([^"\'\/]+)["\'][^>]*>(.*?)<\/a>/is', $html, $matches_html ) ) {
             if ( ! empty( $matches_html[2] ) ) {
                 foreach ( $matches_html[2] as $label ) {
-                    $label = trim( strip_tags( $label ) );
+                    $label = trim( wp_strip_all_tags( $label ) );
                     $label = html_entity_decode( $label, ENT_QUOTES, 'UTF-8' );
                     if ( ! empty( $label ) && ! in_array( $label, $topics, true ) ) {
                         if ( strlen( $label ) < 50 ) {
@@ -2563,7 +2589,7 @@ class Quora_Importer {
 
         $date_str = trim( $date_str );
         if ( empty( $date_str ) ) {
-            return date( 'Y-m-d H:i:s', $post_time + 86400 );
+            return gmdate( 'Y-m-d H:i:s', $post_time + 86400 );
         }
 
         $french_months = array(
@@ -2584,7 +2610,7 @@ class Quora_Importer {
         $normalized_date = str_replace( array_keys( $french_months ), array_values( $french_months ), strtolower( $date_str ) );
         $parsed_time = strtotime( $normalized_date );
         if ( $parsed_time !== false && $parsed_time > 0 ) {
-            return date( 'Y-m-d H:i:s', $parsed_time );
+            return gmdate( 'Y-m-d H:i:s', $parsed_time );
         }
 
         if ( preg_match( '/^(\d+)\s*(ans?|y|yrs?)/iu', $date_str, $matches ) ) {
@@ -2616,10 +2642,10 @@ class Quora_Importer {
             if ( $computed < $post_time ) {
                 $computed = $post_time + 86400;
             }
-            return date( 'Y-m-d H:i:s', $computed );
+            return gmdate( 'Y-m-d H:i:s', $computed );
         }
 
-        return date( 'Y-m-d H:i:s', $post_time + 86400 );
+        return gmdate( 'Y-m-d H:i:s', $post_time + 86400 );
     }
 
     /**
@@ -2718,7 +2744,7 @@ class Quora_Importer {
         ?>
         <div class="quora-meta-box-container" style="font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">
             <p>
-                <label for="quora_url_input" style="font-weight: 600; display: block; margin-bottom: 5px;"><?php _e( 'URL de la réponse Quora :', 'quora-importer' ); ?></label>
+                <label for="quora_url_input" style="font-weight: 600; display: block; margin-bottom: 5px;"><?php esc_html_e( 'URL de la réponse Quora :', 'quora-importer' ); ?></label>
                 <input type="url" id="quora_url_input" name="quora_url" value="<?php echo esc_attr( $quora_url ); ?>" style="width: 100%; box-sizing: border-box;" placeholder="https://fr.quora.com/... /answer/..." />
             </p>
             
@@ -2729,20 +2755,20 @@ class Quora_Importer {
                 </div>
                 <button type="button" id="quora-test-url-btn" class="button button-secondary" style="height: 28px; line-height: 26px; display: inline-flex; align-items: center; justify-content: center;">
                     <span class="spinner" style="float: none; margin: 0 5px 0 0; display: none; vertical-align: middle; visibility: visible;"></span>
-                    <span class="btn-text"><?php _e( 'Tester', 'quora-importer' ); ?></span>
+                    <span class="btn-text"><?php esc_html_e( 'Tester', 'quora-importer' ); ?></span>
                 </button>
             </div>
             
             <div id="quora-test-msg" style="margin-top: 8px; font-size: 12px; font-style: italic; display: none;"></div>
-
+ 
             <div id="quora-action-buttons" style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 12px; display: <?php echo ($quora_status === 'valid') ? 'block' : 'none'; ?>;">
                 <button type="button" id="quora-import-tags-btn" class="button button-secondary" style="width: 100%; margin-bottom: 8px; justify-content: center; display: inline-flex; align-items: center; text-align: center;">
                     <span class="spinner" style="float: none; margin: 0 5px 0 0; display: none; vertical-align: middle; visibility: visible;"></span>
-                    <span class="btn-text"><?php _e( 'Importer les étiquettes', 'quora-importer' ); ?></span>
+                    <span class="btn-text"><?php esc_html_e( 'Importer les étiquettes', 'quora-importer' ); ?></span>
                 </button>
                 <button type="button" id="quora-update-comments-btn" class="button button-secondary" style="width: 100%; justify-content: center; display: inline-flex; align-items: center; text-align: center;">
                     <span class="spinner" style="float: none; margin: 0 5px 0 0; display: none; vertical-align: middle; visibility: visible;"></span>
-                    <span class="btn-text"><?php _e( 'Mettre à jour les commentaires', 'quora-importer' ); ?></span>
+                    <span class="btn-text"><?php esc_html_e( 'Mettre à jour les commentaires', 'quora-importer' ); ?></span>
                 </button>
             </div>
 
@@ -2786,7 +2812,7 @@ class Quora_Importer {
                                 action: 'quora_test_url',
                                 url: urlVal,
                                 post_id: <?php echo intval( $post->ID ); ?>,
-                                security: '<?php echo wp_create_nonce( "quora-test-url-nonce" ); ?>'
+                                security: '<?php echo esc_js( wp_create_nonce( "quora-test-url-nonce" ) ); ?>'
                             },
                             success: function(response) {
                                 $btn.prop('disabled', false);
@@ -2849,7 +2875,7 @@ class Quora_Importer {
                                 action: 'quora_import_post_tags',
                                 url: urlVal,
                                 post_id: <?php echo intval( $post->ID ); ?>,
-                                security: '<?php echo wp_create_nonce( "quora-import-tags-nonce" ); ?>'
+                                security: '<?php echo esc_js( wp_create_nonce( "quora-import-tags-nonce" ) ); ?>'
                             },
                             success: function(response) {
                                 $btn.prop('disabled', false);
@@ -2891,7 +2917,7 @@ class Quora_Importer {
                                 action: 'quora_update_post_comments',
                                 url: urlVal,
                                 post_id: <?php echo intval( $post->ID ); ?>,
-                                security: '<?php echo wp_create_nonce( "quora-update-comments-nonce" ); ?>'
+                                security: '<?php echo esc_js( wp_create_nonce( "quora-update-comments-nonce" ) ); ?>'
                             },
                             success: function(response) {
                                 $btn.prop('disabled', false);
@@ -2925,7 +2951,7 @@ class Quora_Importer {
             return;
         }
 
-        if ( ! wp_verify_nonce( $_POST['quora_url_meta_box_nonce'], 'quora_url_meta_box' ) ) {
+        if ( ! wp_verify_nonce( sanitize_key( wp_unslash( $_POST['quora_url_meta_box_nonce'] ) ), 'quora_url_meta_box' ) ) {
             return;
         }
 
@@ -2938,7 +2964,7 @@ class Quora_Importer {
         }
 
         if ( isset( $_POST['quora_url'] ) ) {
-            $new_url = esc_url_raw( trim( $_POST['quora_url'] ) );
+            $new_url = sanitize_text_field( wp_unslash( $_POST['quora_url'] ) );
             $old_url = get_post_meta( $post_id, '_quora_url', true );
 
             if ( $new_url !== $old_url ) {
@@ -2990,7 +3016,7 @@ class Quora_Importer {
             wp_send_json_error( array( 'message' => __( 'Permission denied.', 'quora-importer' ) ) );
         }
         
-        $url = isset( $_POST['url'] ) ? esc_url_raw( trim( $_POST['url'] ) ) : '';
+        $url = isset( $_POST['url'] ) ? sanitize_text_field( wp_unslash( $_POST['url'] ) ) : '';
         $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
         
         if ( empty( $url ) || ! $this->validate_quora_url( $url ) ) {
@@ -3053,7 +3079,7 @@ class Quora_Importer {
             wp_send_json_error( array( 'message' => __( 'Permission denied.', 'quora-importer' ) ) );
         }
         
-        $url = isset( $_POST['url'] ) ? esc_url_raw( trim( $_POST['url'] ) ) : '';
+        $url = isset( $_POST['url'] ) ? sanitize_text_field( wp_unslash( $_POST['url'] ) ) : '';
         $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
         
         if ( empty( $url ) || ! $this->validate_quora_url( $url ) ) {
@@ -3076,6 +3102,7 @@ class Quora_Importer {
             }
             
             wp_send_json_success( array(
+                // translators: %d: count of tags.
                 'message' => sprintf( _n( '%d étiquette importée avec succès.', '%d étiquettes importées avec succès.', count( $extracted_topics ), 'quora-importer' ), count( $extracted_topics ) )
             ) );
         } else {
@@ -3084,6 +3111,7 @@ class Quora_Importer {
             }
             $error_msg = ! empty( $this->last_topic_error ) ? $this->last_topic_error : __( 'Aucune étiquette trouvée ou échec de l\'extraction.', 'quora-importer' );
             wp_send_json_error( array(
+                // translators: %s: error message.
                 'message' => sprintf( __( 'Échec de l\'importation : %s', 'quora-importer' ), $error_msg )
             ) );
         }
@@ -3099,7 +3127,7 @@ class Quora_Importer {
             wp_send_json_error( array( 'message' => __( 'Permission denied.', 'quora-importer' ) ) );
         }
         
-        $url = isset( $_POST['url'] ) ? esc_url_raw( trim( $_POST['url'] ) ) : '';
+        $url = isset( $_POST['url'] ) ? sanitize_text_field( wp_unslash( $_POST['url'] ) ) : '';
         $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
         
         if ( empty( $url ) || ! $this->validate_quora_url( $url ) ) {
@@ -3117,45 +3145,41 @@ class Quora_Importer {
         if ( $comments_res['success'] ) {
             update_post_meta( $post_id, '_quora_comments_imported', '1' );
             wp_send_json_success( array(
+                // translators: %d: count of comments.
                 'message' => sprintf( _n( '%d commentaire importé ou mis à jour.', '%d commentaires importés ou mis à jour.', $comments_res['count'], 'quora-importer' ), $comments_res['count'] )
             ) );
         } else {
             // Revert status to 0 so it can be retried
             update_post_meta( $post_id, '_quora_comments_imported', '0' );
             wp_send_json_error( array(
+                // translators: %s: error message.
                 'message' => sprintf( __( 'Échec de la mise à jour : %s', 'quora-importer' ), $comments_res['error'] )
             ) );
         }
     }
 
     /**
-     * Debug parsing of an HTML file.
+     * Log messages to CLI/console, properly escaping output.
      */
-    public function debug_parse_file( $html_file ) {
-        $parsed_posts = $this->parse_html_file( $html_file );
-        echo "Parsed " . count( $parsed_posts ) . " posts from file.\n";
-        foreach ( $parsed_posts as $post ) {
-            if ( stripos( serialize($post), 'Noether' ) !== false ) {
-                echo "--> FOUND Noether post!\n";
-                print_r($post);
-            }
-        }
+    private function cli_log( $msg ) {
+        echo esc_html( $msg );
     }
 
     /**
      * Run database updates to synchronize titles, content, categories, tags, and Quora URLs.
      */
     public function run_database_updates() {
-        echo "Starting Quora posts update...\n";
+        $this->cli_log( "Starting Quora posts update...\n" );
 
         // Path to Quora exports
         $export_dir = '/home/goulu/Documents/develop/quora2wordpress/content';
         if ( ! is_dir( $export_dir ) ) {
-            die( "Error: Quora export directory not found at $export_dir\n" );
+            $this->cli_log( "Error: Quora export directory not found at $export_dir\n" );
+            return;
         }
 
         // Find all index.html files in export dir
-        echo "Scanning for exports in $export_dir...\n";
+        $this->cli_log( "Scanning for exports in $export_dir...\n" );
         $directory_iterator = new RecursiveDirectoryIterator( $export_dir );
         $iterator = new RecursiveIteratorIterator( $directory_iterator );
         $html_files = array();
@@ -3166,16 +3190,16 @@ class Quora_Importer {
             }
         }
 
-        echo "Found " . count( $html_files ) . " index.html files.\n";
+        $this->cli_log( "Found " . count( $html_files ) . " index.html files.\n" );
 
         // Load all WordPress posts
-        echo "Loading WordPress posts...\n";
+        $this->cli_log( "Loading WordPress posts...\n" );
         $wp_posts = get_posts( array(
             'post_type'      => 'post',
             'post_status'    => 'any',
             'posts_per_page' => -1,
         ) );
-        echo "Found " . count( $wp_posts ) . " posts in database.\n";
+        $this->cli_log( "Found " . count( $wp_posts ) . " posts in database.\n" );
 
         // Load quora_urls.json dictionary
         $json_file = dirname( dirname( __FILE__ ) ) . '/scratch/quora_urls.json';
@@ -3204,7 +3228,7 @@ class Quora_Importer {
                 }
             }
         }
-        echo "Loaded " . count( $dict_urls ) . " URLs and " . count( $slug_dict ) . " slugs from dictionary.\n";
+        $this->cli_log( "Loaded " . count( $dict_urls ) . " URLs and " . count( $slug_dict ) . " slugs from dictionary.\n" );
 
         // Find python executable for validation
         $python_executable = 'python3';
@@ -3214,7 +3238,7 @@ class Quora_Importer {
                 break;
             }
         }
-        echo "Using Python executable: $python_executable\n";
+        $this->cli_log( "Using Python executable: $python_executable\n" );
 
         // Helper to test URL status code
         $test_url_status = function( $url ) use ( $python_executable ) {
@@ -3231,12 +3255,12 @@ class Quora_Importer {
         $matched_count = 0;
         foreach ( $html_files as $html_file ) {
             $dir = dirname( $html_file );
-            echo "\nProcessing file: $html_file\n";
+            $this->cli_log( "\nProcessing file: $html_file\n" );
             
             // Parse the html file
             $parsed_posts = $this->parse_html_file( $html_file );
             if ( empty( $parsed_posts ) ) {
-                echo "No posts parsed from this file.\n";
+                $this->cli_log( "No posts parsed from this file.\n" );
                 continue;
             }
             
@@ -3295,14 +3319,14 @@ class Quora_Importer {
                     // Check manual override
                     $is_overridden = get_post_meta( $matched_post->ID, '_quora_url_override', true );
                     if ( $is_overridden === '1' ) {
-                        echo "Matched WordPress Post ID: {$matched_post->ID} (URL locked - skipping updates)\n";
+                        $this->cli_log( "Matched WordPress Post ID: {$matched_post->ID} (URL locked - skipping updates)\n" );
                         continue;
                     }
 
                     // Check if it's a draft
                     $is_draft = ( strpos( strtolower( $post['type'] ), 'brouillon' ) !== false || strpos( strtolower( $post['type'] ), 'draft' ) !== false );
                     if ( $is_draft ) {
-                        echo "Matched WordPress Post ID: {$matched_post->ID} (Draft - skipping URL validation)\n";
+                        $this->cli_log( "Matched WordPress Post ID: {$matched_post->ID} (Draft - skipping URL validation)\n" );
                         update_post_meta( $matched_post->ID, '_quora_url_status', 'valid' );
                         delete_post_meta( $matched_post->ID, '_quora_url' );
                         delete_post_meta( $matched_post->ID, '_quora_candidate_urls' );
@@ -3310,9 +3334,9 @@ class Quora_Importer {
                     }
 
                     $matched_count++;
-                    echo "Matched WordPress Post ID: {$matched_post->ID}\n";
-                    echo "  Old Title: '{$matched_post->post_title}'\n";
-                    echo "  New Title: '{$clean_title}'\n";
+                    $this->cli_log( "Matched WordPress Post ID: {$matched_post->ID}\n" );
+                    $this->cli_log( "  Old Title: '{$matched_post->post_title}'\n" );
+                    $this->cli_log( "  New Title: '{$clean_title}'\n" );
                     
                     // Clean/process content
                     $content = ! empty( $post['Content'] ) ? $post['Content'] : '';
@@ -3337,7 +3361,7 @@ class Quora_Importer {
                     }
                     if ( $needs_update ) {
                         wp_update_post( $update_data );
-                        echo "  -> Updated post title/content.\n";
+                        $this->cli_log( "  -> Updated post title/content.\n" );
                     }
                     
                     // Generate candidate URLs
@@ -3372,7 +3396,7 @@ class Quora_Importer {
                     }
                     
                     update_post_meta( $matched_post->ID, '_quora_candidate_urls', $candidate_urls );
-                    echo "  Candidates: " . implode( ', ', $candidate_urls ) . "\n";
+                    $this->cli_log( "  Candidates: " . implode( ', ', $candidate_urls ) . "\n" );
                     
                     // Validate the first candidate
                     if ( ! empty( $candidate_urls ) ) {
@@ -3389,11 +3413,11 @@ class Quora_Importer {
                         
                         if ( $is_valid_dict ) {
                             $status = 'valid';
-                            echo "  Dictionary validation: SUCCESS ($url_to_test)\n";
+                            $this->cli_log( "  Dictionary validation: SUCCESS ($url_to_test)\n" );
                         } else {
-                            echo "  Testing URL via scraper: $url_to_test\n";
+                            $this->cli_log( "  Testing URL via scraper: $url_to_test\n" );
                             $status_code = $test_url_status( $url_to_test );
-                            echo "  Status Code: $status_code\n";
+                            $this->cli_log( "  Status Code: $status_code\n" );
                             
                             $status = 'untested';
                             if ( $status_code === 200 ) {
@@ -3405,7 +3429,7 @@ class Quora_Importer {
                             }
 
                             if ( $status === 'invalid' && $this->is_selenium_available() ) {
-                                echo "  URL test failed. Trying search fallback via Selenium...\n";
+                                $this->cli_log( "  URL test failed. Trying search fallback via Selenium...\n" );
                                 $title_for_search = ! empty( $post['Question'] ) ? $post['Question'] : ( ! empty( $post['Title'] ) ? $post['Title'] : '' );
                                 if ( empty( $title_for_search ) && ! empty( $post['Content'] ) ) {
                                     $title_for_search = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
@@ -3413,14 +3437,14 @@ class Quora_Importer {
                                 $title_for_search = preg_replace( '/\[\/?math\]/i', '$', $title_for_search );
                                 $searched_url = $this->search_quora_url_via_selenium( $title_for_search, $matched_post->post_author, $post );
                                 if ( ! empty( $searched_url ) ) {
-                                    echo "  Found URL via search: $searched_url. Verifying...\n";
+                                    $this->cli_log( "  Found URL via search: $searched_url. Verifying...\n" );
                                     $verify_status_code = $test_url_status( $searched_url );
                                     if ( $verify_status_code === 200 || ( $verify_status_code > 0 && $verify_status_code !== 404 ) ) {
                                         $url_to_test = $searched_url;
                                         $status = 'valid';
-                                        echo "  Verification: SUCCESS\n";
+                                        $this->cli_log( "  Verification: SUCCESS\n" );
                                     } else {
-                                        echo "  Verification: FAILED ($verify_status_code)\n";
+                                        $this->cli_log( "  Verification: FAILED ($verify_status_code)\n" );
                                     }
                                 }
                             }
@@ -3428,18 +3452,19 @@ class Quora_Importer {
                         
                         update_post_meta( $matched_post->ID, '_quora_url', $url_to_test );
                         update_post_meta( $matched_post->ID, '_quora_url_status', $status );
-                        echo "  -> Updated _quora_url = $url_to_test, _quora_url_status = $status\n";
+                        $this->cli_log( "  -> Updated _quora_url = $url_to_test, _quora_url_status = $status\n" );
                     }
                 }
             }
         }
 
         // Second Pass: Align and repair any remaining invalid/unmatched database posts directly
-        echo "\nStarting Second Pass: Repairing unmatched/invalid posts directly in database...\n";
+        $this->cli_log( "\nStarting Second Pass: Repairing unmatched/invalid posts directly in database...\n" );
         $invalid_posts = get_posts( array(
             'post_type'      => 'post',
             'post_status'    => 'any',
             'posts_per_page' => -1,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
             'meta_query'     => array(
                 'relation' => 'OR',
                 array(
@@ -3454,17 +3479,17 @@ class Quora_Importer {
             ),
         ) );
 
-        echo "Found " . count( $invalid_posts ) . " posts with invalid or missing Quora URL status.\n";
+        $this->cli_log( "Found " . count( $invalid_posts ) . " posts with invalid or missing Quora URL status.\n" );
 
         foreach ( $invalid_posts as $db_post ) {
             // Check manual override
             $is_overridden = get_post_meta( $db_post->ID, '_quora_url_override', true );
             if ( $is_overridden === '1' ) {
-                echo "\nPost ID: {$db_post->ID} | Title: '{$db_post->post_title}' (URL locked - skipping updates)\n";
+                $this->cli_log( "\nPost ID: {$db_post->ID} | Title: '{$db_post->post_title}' (URL locked - skipping updates)\n" );
                 continue;
             }
 
-            echo "\nRepairing Post ID: {$db_post->ID} | Current Title: '{$db_post->post_title}'\n";
+            $this->cli_log( "\nRepairing Post ID: {$db_post->ID} | Current Title: '{$db_post->post_title}'\n" );
             
             // Try to find a valid URL using candidates
             $candidates = array();
@@ -3621,7 +3646,7 @@ class Quora_Importer {
                 $cand_lower = strtolower( $candidate_url );
                 if ( isset( $dict_urls[$cand_lower] ) ) {
                     $valid_url = $dict_urls[$cand_lower];
-                    echo "  Dictionary validation: SUCCESS ($valid_url)\n";
+                    $this->cli_log( "  Dictionary validation: SUCCESS ($valid_url)\n" );
                     break;
                 }
                 
@@ -3637,7 +3662,7 @@ class Quora_Importer {
                     $clean_slug = preg_replace( '/[^a-z0-9]/', '', $clean_slug );
                     if ( isset( $slug_dict[$clean_slug] ) ) {
                         $valid_url = $slug_dict[$clean_slug][0];
-                        echo "  Dictionary slug validation: SUCCESS ($valid_url)\n";
+                        $this->cli_log( "  Dictionary slug validation: SUCCESS ($valid_url)\n" );
                         break;
                     }
                 }
@@ -3645,9 +3670,9 @@ class Quora_Importer {
             
             if ( ! $valid_url ) {
                 foreach ( $candidates as $candidate_url ) {
-                    echo "  Testing direct candidate: $candidate_url\n";
+                    $this->cli_log( "  Testing direct candidate: $candidate_url\n" );
                     $status_code = $test_url_status( $candidate_url );
-                    echo "  Status Code: $status_code\n";
+                    $this->cli_log( "  Status Code: $status_code\n" );
                     
                     if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
                         $valid_url = $candidate_url;
@@ -3657,7 +3682,7 @@ class Quora_Importer {
             }
             
             if ( ! $valid_url && $this->is_selenium_available() ) {
-                echo "  No valid candidate found. Trying search fallback via Selenium...\n";
+                $this->cli_log( "  No valid candidate found. Trying search fallback via Selenium...\n" );
                 $mock_post = array(
                     'Content' => $db_post->post_content,
                     'type' => $is_answer ? 'Répondre' : 'Question',
@@ -3667,13 +3692,13 @@ class Quora_Importer {
                 $title_for_search = preg_replace( '/\[\/?math\]/i', '$', $title_for_search );
                 $searched_url = $this->search_quora_url_via_selenium( $title_for_search, $db_post->post_author, $mock_post );
                 if ( ! empty( $searched_url ) ) {
-                    echo "  Found URL via search: $searched_url. Verifying...\n";
+                    $this->cli_log( "  Found URL via search: $searched_url. Verifying...\n" );
                     $verify_status_code = $test_url_status( $searched_url );
                     if ( $verify_status_code === 200 || ( $verify_status_code > 0 && $verify_status_code !== 404 ) ) {
                         $valid_url = $searched_url;
-                        echo "  Verification: SUCCESS\n";
+                        $this->cli_log( "  Verification: SUCCESS\n" );
                     } else {
-                        echo "  Verification: FAILED ($verify_status_code)\n";
+                        $this->cli_log( "  Verification: FAILED ($verify_status_code)\n" );
                     }
                 }
             }
@@ -3702,18 +3727,18 @@ class Quora_Importer {
                 }
                 if ( $needs_update ) {
                     wp_update_post( $update_data );
-                    echo "  -> Corrected Title to: '{$new_title}'\n";
+                    $this->cli_log( "  -> Corrected Title to: '{$new_title}'\n" );
                 }
                 
                 update_post_meta( $db_post->ID, '_quora_url', $valid_url );
                 update_post_meta( $db_post->ID, '_quora_url_status', 'valid' );
-                echo "  -> FOUND and set valid _quora_url = $valid_url\n";
+                $this->cli_log( "  -> FOUND and set valid _quora_url = $valid_url\n" );
             } else {
-                echo "  -> Could not find a valid URL candidate. Post remains invalid.\n";
+                $this->cli_log( "  -> Could not find a valid URL candidate. Post remains invalid.\n" );
             }
         }
 
-        echo "\nUpdate complete! Matched and processed $matched_count posts.\n";
+        $this->cli_log( "\nUpdate complete! Matched and processed $matched_count posts.\n" );
     }
 }
 

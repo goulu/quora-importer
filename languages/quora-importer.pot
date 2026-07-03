@@ -1,126 +1,125 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the Quora Importer package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: Quora Importer 1.1.0\n"
+"Project-Id-Version: Quora Importer 1.3.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-07-03 19:04+0200\n"
-"PO-Revision-Date: 2026-06-28 08:53+02:00\n"
-"Last-Translator: Antigravity\n"
-"Language-Team: French\n"
-"Language: fr_FR\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=2; plural=(n > 1);\n"
-"X-Generator: Poedit 3.0\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
 #: includes/class-quora-importer.php:50
 msgid "Import a Quora blog from a ZIP or index.html file."
-msgstr "Importer un blog Quora à partir d'un fichier ZIP ou index.html."
+msgstr ""
 
 #: includes/class-quora-importer.php:68
 msgid "Error uploading file."
-msgstr "Erreur lors du téléversement du fichier."
+msgstr ""
 
 #: includes/class-quora-importer.php:69
 msgid "Error parsing file."
-msgstr "Erreur lors de l'analyse du fichier."
+msgstr ""
 
 #: includes/class-quora-importer.php:70 includes/class-quora-importer.php:305
 msgid "Importing..."
-msgstr "Importation en cours..."
+msgstr ""
 
 #: includes/class-quora-importer.php:71
 msgid "Import completed successfully!"
-msgstr "Importation terminée avec succès !"
+msgstr ""
 
 #: includes/class-quora-importer.php:72 includes/class-quora-importer.php:171
 msgid "Uploading..."
-msgstr "Téléversement en cours..."
+msgstr ""
 
 #: includes/class-quora-importer.php:73
 msgid "Extracting archive and parsing content..."
-msgstr "Décompression de l'archive et analyse du contenu..."
+msgstr ""
 
 #: includes/class-quora-importer.php:74
 msgid "Please select a valid .zip or .html file."
-msgstr "Veuillez choisir un fichier .zip ou .html."
+msgstr ""
 
 #: includes/class-quora-importer.php:76
 #, php-format
 msgid "We found <strong>%d posts</strong> in your export file."
 msgstr ""
-"Nous avons trouvé <strong>%d articles</strong> dans votre fichier "
-"d'exportation."
 
 #: includes/class-quora-importer.php:77
 msgid " Associated images were detected and will be imported."
-msgstr " Des images associées ont été détectées et pourront être importées."
+msgstr ""
 
 #: includes/class-quora-importer.php:78
 msgid " No image folder detected (text import only)."
-msgstr " Aucun dossier d'images détecté (importation du texte uniquement)."
+msgstr ""
 
 #: includes/class-quora-importer.php:80
 #, php-format
 msgid "Suggested author \"%s\" pre-selected."
-msgstr "Auteur suggéré \"%s\" pré-sélectionné."
+msgstr ""
 
 #: includes/class-quora-importer.php:81
 msgid "Please select at least one content type to import."
-msgstr "Veuillez sélectionner au moins un type de contenu à importer."
+msgstr ""
 
 #: includes/class-quora-importer.php:82
 msgid "Are you sure you want to stop the current import?"
-msgstr "Voulez-vous vraiment arrêter l'importation en cours ?"
+msgstr ""
 
 #: includes/class-quora-importer.php:83
 msgid "Stopping..."
-msgstr "Arrêt en cours..."
+msgstr ""
 
 #: includes/class-quora-importer.php:85
 #, php-format
 msgid "Starting import of %d posts..."
-msgstr "Début de l'importation de %d articles..."
+msgstr ""
 
 #: includes/class-quora-importer.php:86
 msgid "Import stopped by user."
-msgstr "Importation interrompue par l'utilisateur."
+msgstr ""
 
 #: includes/class-quora-importer.php:88
 #, php-format
 msgid "[SKIPPED] #%1$d: \"%2$s\" - %3$s"
-msgstr "[IGNORÉ] #%1$d : \"%2$s\" - %3$s"
+msgstr ""
 
 #: includes/class-quora-importer.php:90
 #, php-format
 msgid "[ERROR] #%1$d: %2$s"
-msgstr "[ERREUR] #%1$d : %2$s"
+msgstr ""
 
 #: includes/class-quora-importer.php:92
 #, php-format
 msgid "[ERROR] Network failure during import of post #%d. Retrying..."
 msgstr ""
-"[ERREUR] Échec réseau lors de l'importation de l'article #%d. Tentative de "
-"poursuite..."
 
 #: includes/class-quora-importer.php:94
 #, php-format
 msgid "Import finished! %1$d posts imported, %2$d skipped. Cleaning up..."
 msgstr ""
-"Importation terminée ! %1$d articles importés, %2$d ignorés. Nettoyage en "
-"cours..."
 
 #: includes/class-quora-importer.php:95 includes/class-quora-importer.php:345
 msgid "Live"
-msgstr "En direct"
+msgstr ""
 
 #: includes/class-quora-importer.php:96
 msgid "Finished"
-msgstr "Terminé"
+msgstr ""
 
 #: includes/class-quora-importer.php:97
 msgid "Stop Import"
-msgstr "Arrêter l'importation"
+msgstr ""
 
 #: includes/class-quora-importer.php:98 includes/class-quora-importer.php:352
 msgid "Pause"
@@ -131,9 +130,8 @@ msgid "Continue"
 msgstr ""
 
 #: includes/class-quora-importer.php:100
-#, fuzzy
 msgid "Import paused."
-msgstr "Importation interrompue par l'utilisateur."
+msgstr ""
 
 #: includes/class-quora-importer.php:101
 msgid "Import resumed."
@@ -141,14 +139,12 @@ msgstr ""
 
 #: includes/class-quora-importer.php:121
 msgid "Quora Blog Importer"
-msgstr "Importateur de Blog Quora"
+msgstr ""
 
 #: includes/class-quora-importer.php:122
 msgid ""
 "Easily migrate your Quora answers, drafts, and space posts to WordPress."
 msgstr ""
-"Migrez facilement vos réponses, brouillons et publications d'espace Quora "
-"vers WordPress."
 
 #: includes/class-quora-importer.php:135
 #, php-format
@@ -156,148 +152,127 @@ msgid ""
 "Quora Importer Plugin &bull; Version %s &bull; By Philippe Guglielmetti & "
 "Antigravity"
 msgstr ""
-"Plugin d'importation Quora &bull; Version %s &bull; Par Philippe "
-"Guglielmetti & Antigravity"
 
 #: includes/class-quora-importer.php:149
-#, fuzzy
 msgid "Upload your export file(s)"
-msgstr "Téléversez votre fichier d'exportation"
+msgstr ""
 
 #: includes/class-quora-importer.php:150
-#, fuzzy
 msgid ""
 "Drag & drop your Quora export ZIP file(s) (or index.html) here, or click to "
 "browse."
 msgstr ""
-"Glissez-déposez votre fichier ZIP d'exportation Quora (ou votre fichier "
-"index.html) ici, ou cliquez pour parcourir."
 
 #: includes/class-quora-importer.php:151
-#, fuzzy
 msgid "Select File(s)"
-msgstr "Sélectionner le fichier"
+msgstr ""
 
 #: includes/class-quora-importer.php:157
 msgid "How to get your Quora export file?"
-msgstr "Comment obtenir votre fichier d'exportation Quora ?"
+msgstr ""
 
 #: includes/class-quora-importer.php:159
 msgid "Log in to Quora and go to your <strong>Account Settings</strong>."
 msgstr ""
-"Connectez-vous à Quora et allez dans vos <strong>Paramètres de compte</"
-"strong>."
 
 #: includes/class-quora-importer.php:160
 msgid ""
 "Under the <strong>Privacy</strong> tab, click <strong>Download your data "
 "(Request Archive)</strong>."
 msgstr ""
-"Sous l'onglet <strong>Vie privée (Privacy)</strong>, cliquez sur "
-"<strong>Télécharger vos données (Request Archive)</strong>."
 
 #: includes/class-quora-importer.php:161
 msgid ""
 "You will receive an email from Quora containing a link to download your ZIP "
 "archive."
 msgstr ""
-"Vous recevrez un e-mail de Quora contenant un lien pour télécharger votre "
-"archive ZIP."
 
 #: includes/class-quora-importer.php:162
 msgid ""
 "Upload this ZIP archive directly here to preserve all your answers and "
 "images!"
 msgstr ""
-"Téléversez cette archive ZIP directement ici pour préserver toutes vos "
-"réponses et vos images !"
 
 #: includes/class-quora-importer.php:172
 msgid "Please wait while the file is being processed."
-msgstr "Veuillez patienter pendant le traitement du fichier."
+msgstr ""
 
 #: includes/class-quora-importer.php:178
 msgid "Import Configuration"
-msgstr "Configuration de l'importation"
+msgstr ""
 
 #: includes/class-quora-importer.php:185
 msgid "1. Post Settings"
-msgstr "1. Paramètres des articles"
+msgstr ""
 
 #: includes/class-quora-importer.php:187
 msgid "Author for imported posts:"
-msgstr "Auteur des articles importés :"
+msgstr ""
 
 #: includes/class-quora-importer.php:205
 msgid "Publish if text is longer than:"
-msgstr "Publier si le texte fait plus de :"
+msgstr ""
 
 #: includes/class-quora-importer.php:208
 msgid ""
 "characters (shorter published originals, or drafts, will be imported as "
 "Draft)."
 msgstr ""
-"caractères (les originaux publiés plus courts, ou brouillons, seront "
-"importés en Brouillon)."
 
 #: includes/class-quora-importer.php:213
 msgid "Link to Quora:"
-msgstr "Lien vers Quora :"
+msgstr ""
 
 #: includes/class-quora-importer.php:215
 msgid "No"
-msgstr "Non"
+msgstr ""
 
 #: includes/class-quora-importer.php:216
 msgid "At the top of the post"
-msgstr "En haut de l'article"
+msgstr ""
 
 #: includes/class-quora-importer.php:217
 msgid "At the bottom of the post"
-msgstr "En bas de l'article"
+msgstr ""
 
 #: includes/class-quora-importer.php:222
 msgid "Link Template (HTML):"
-msgstr "Format du lien (HTML) :"
+msgstr ""
 
 #: includes/class-quora-importer.php:228
 msgid "2. Content Types to Import"
-msgstr "2. Types de contenu à importer"
+msgstr ""
 
 #: includes/class-quora-importer.php:235
 msgid "3. Media & Images"
-msgstr "3. Médias et Images"
+msgstr ""
 
 #: includes/class-quora-importer.php:239
 msgid "Upload images to the WordPress Media Library"
-msgstr "Téléverser les images dans la bibliothèque WordPress"
+msgstr ""
 
 #: includes/class-quora-importer.php:240
 msgid ""
 "Extracts local images from the ZIP archive and inserts them cleanly into "
 "your media library."
 msgstr ""
-"Extrait les images locales de l'archive ZIP et les insère proprement dans "
-"vos médias."
 
 #: includes/class-quora-importer.php:247
 msgid "Set first image as featured image"
-msgstr "Définir la première image comme image mise en avant"
+msgstr ""
 
 #: includes/class-quora-importer.php:248
 msgid ""
 "Automatically assigns the first image found in the post as the thumbnail."
 msgstr ""
-"Assigne automatiquement la première image trouvée dans l'article comme "
-"vignette."
 
 #: includes/class-quora-importer.php:254
 msgid "4. Tag Settings"
-msgstr "4. Étiquettes"
+msgstr ""
 
 #: includes/class-quora-importer.php:258
 msgid "Extract Quora topic labels"
-msgstr "Extraire les étiquettes Quora"
+msgstr ""
 
 #: includes/class-quora-importer.php:259
 msgid ""
@@ -305,383 +280,340 @@ msgid ""
 "topic tags (e.g. \"Sociologie\", \"Exemples\") and apply them as WordPress "
 "tags."
 msgstr ""
-"Visite le lien Quora de chaque article pour extraire les étiquettes "
-"d'origine (ex. \"Sociologie\", \"Exemples\") et les appliquer comme "
-"étiquettes WordPress."
 
 #: includes/class-quora-importer.php:265
 msgid "5. Wikipedia / Reference 2 Wiki"
-msgstr "5. Wikipédia / Reference 2 Wiki"
+msgstr ""
 
 #: includes/class-quora-importer.php:275
 msgid "Support for \"Reference 2 Wiki\""
-msgstr "Support de \"Reference 2 Wiki\""
+msgstr ""
 
 #: includes/class-quora-importer.php:276
 msgid ""
 "Automatically convert Wikipedia links in imported articles and comments to "
 "[[lang|article|text]] syntax."
-msgstr "Convertir automatiquement les liens Wikipedia dans les articles et commentaires importés en syntaxe [[lang|article|texte]]."
+msgstr ""
 
 #: includes/class-quora-importer.php:282
-#, fuzzy
 msgid "6. Comment Settings"
-msgstr "6. Paramètres des commentaires"
+msgstr ""
 
 #: includes/class-quora-importer.php:285
 msgid "Import comments from Quora"
-msgstr "Importer les commentaires de Quora"
+msgstr ""
 
 #: includes/class-quora-importer.php:288
 msgid "No import (Pas d'importation)"
-msgstr "Pas d'importation"
+msgstr ""
 
 #: includes/class-quora-importer.php:289
 msgid "Direct import (Importation directe)"
-msgstr "Importation directe"
+msgstr ""
 
 #: includes/class-quora-importer.php:290
 msgid "Deferred import (Importation différée)"
-msgstr "Importation différée"
+msgstr ""
 
 #: includes/class-quora-importer.php:292
 msgid ""
 "Choose when and how to import comments. Direct imports comments during the "
 "import process. Deferred schedules comment scraping asynchronously via "
 "WordPress CRON on demand when the post is first viewed on the site."
-msgstr "Choisissez quand et comment importer les commentaires. L'importation directe importe les commentaires pendant le processus d'importation. L'importation différée planifie la récupération asynchrone des commentaires via WordPress CRON à la demande lors de la première consultation de l'article sur le site."
+msgstr ""
 
 #: includes/class-quora-importer.php:297
 msgid "Cancel"
-msgstr "Annuler"
+msgstr ""
 
 #: includes/class-quora-importer.php:298
 msgid "Start Import"
-msgstr "Lancer l'importation"
+msgstr ""
 
 #: includes/class-quora-importer.php:325
 msgid "Your Quora blog has been successfully imported. Here is the summary:"
-msgstr "Votre blog Quora a été importé avec succès. Voici le résumé :"
+msgstr ""
 
 #: includes/class-quora-importer.php:330
 msgid "Imported Posts"
-msgstr "Articles importés"
+msgstr ""
 
 #: includes/class-quora-importer.php:334
 msgid "Skipped Posts"
-msgstr "Articles ignorés"
+msgstr ""
 
 #: includes/class-quora-importer.php:338
 msgid "Uploaded Images"
-msgstr "Images téléversées"
+msgstr ""
 
 #: includes/class-quora-importer.php:344
 msgid "Import Log"
-msgstr "Journal d'importation"
+msgstr ""
 
 #: includes/class-quora-importer.php:356
 msgid "View All Posts"
-msgstr "Voir tous les articles"
+msgstr ""
 
 #: includes/class-quora-importer.php:357
 msgid "Import Another File"
-msgstr "Importer un autre fichier"
+msgstr ""
 
 #: includes/class-quora-importer.php:370 includes/class-quora-importer.php:550
 #: includes/class-quora-importer.php:939
 msgid "Insufficient permissions."
-msgstr "Permissions insuffisantes."
+msgstr ""
 
 #: includes/class-quora-importer.php:374
-#, fuzzy
 msgid "No files received."
-msgstr "Aucun fichier reçu."
+msgstr ""
 
 #: includes/class-quora-importer.php:423
 msgid "Could not create temporary directory."
-msgstr "Impossible de créer le dossier temporaire."
+msgstr ""
 
 #: includes/class-quora-importer.php:435
 #, php-format
 msgid ""
 "Fichier ignoré : extension invalide pour %s. Veuillez utiliser .zip ou .html."
-msgstr "Fichier ignoré : extension invalide pour %s. Veuillez utiliser .zip ou .html."
+msgstr ""
 
 #: includes/class-quora-importer.php:442
 #, php-format
 msgid "Fichier ignoré : impossible de créer le dossier temporaire pour %s."
-msgstr "Fichier ignoré : impossible de créer le dossier temporaire pour %s."
+msgstr ""
 
 #: includes/class-quora-importer.php:449
 #, php-format
 msgid "Fichier ignoré : échec du déplacement du fichier %s."
-msgstr "Fichier ignoré : échec du déplacement du fichier %s."
+msgstr ""
 
 #: includes/class-quora-importer.php:463
 #, php-format
 msgid "Fichier ignoré : échec de l'extraction du ZIP %1$s : %2$s"
-msgstr "Fichier ignoré : échec de l'extraction du ZIP %1$s : %2$s"
+msgstr ""
 
 #: includes/class-quora-importer.php:475
 #, php-format
 msgid "Fichier ignoré : index.html introuvable dans le ZIP %s."
-msgstr "Fichier ignoré : index.html introuvable dans le ZIP %s."
+msgstr ""
 
 #: includes/class-quora-importer.php:485
 #, php-format
 msgid "Fichier ignoré : aucun article éligible trouvé dans %s."
-msgstr "Fichier ignoré : aucun article éligible trouvé dans %s."
+msgstr ""
 
 #: includes/class-quora-importer.php:507
 msgid "Aucun article éligible trouvé dans les fichiers importés."
-msgstr "Aucun article éligible trouvé dans les fichiers importés."
+msgstr ""
 
 #: includes/class-quora-importer.php:569
 msgid "Invalid import parameters."
-msgstr "Paramètres d'importation invalides."
+msgstr ""
 
 #: includes/class-quora-importer.php:583
 msgid "Import session expired or not found."
-msgstr "Session d'importation expirée ou introuvable."
+msgstr ""
 
 #: includes/class-quora-importer.php:588
 msgid "Post not found in session."
-msgstr "Article introuvable dans la session."
+msgstr ""
 
 #: includes/class-quora-importer.php:601
 #, php-format
 msgid "Post type \"%s\" skipped based on your filters."
-msgstr "Type de post \"%s\" ignoré selon vos filtres."
+msgstr ""
 
 #: includes/class-quora-importer.php:747
-#, fuzzy
 msgid "This post already exists in WordPress (updated)."
-msgstr "Cet article semble déjà exister dans WordPress."
+msgstr ""
 
 #: includes/class-quora-importer.php:828
 #, php-format
 msgid "Failed to create post: %s"
-msgstr "Échec de création du post : %s"
+msgstr ""
 
 #: includes/class-quora-importer.php:892
-#, fuzzy, php-format
+#, php-format
 msgid "Topic extraction failed (%s)"
-msgstr "Échec de la décompression ZIP : "
+msgstr ""
 
 #: includes/class-quora-importer.php:896
 #, php-format
 msgid "Comment import failed (%s)"
-msgstr "Échec de l'importation des commentaires (%s)"
+msgstr ""
 
 #: includes/class-quora-importer.php:901
-#, fuzzy, php-format
+#, php-format
 msgid "Post imported successfully (ID: %d)"
-msgstr "Article importé avec succès (ID : %1$d, images : %2$d)."
+msgstr ""
 
 #: includes/class-quora-importer.php:904
 #, php-format
 msgid "%d image"
 msgid_plural "%d images"
-msgstr[0] "%d image"
-msgstr[1] "%d images"
+msgstr[0] ""
+msgstr[1] ""
 
 #: includes/class-quora-importer.php:908
 #, php-format
 msgid "%d topic"
 msgid_plural "%d topics"
-msgstr[0] "%d étiquette"
-msgstr[1] "%d étiquettes"
+msgstr[0] ""
+msgstr[1] ""
 
 #: includes/class-quora-importer.php:912
 #, php-format
 msgid "%d comment"
 msgid_plural "%d comments"
-msgstr[0] "%d commentaire"
-msgstr[1] "%d commentaires"
+msgstr[0] ""
+msgstr[1] ""
 
 #: includes/class-quora-importer.php:945
 msgid "Invalid import session."
-msgstr "Session d'importation invalide."
+msgstr ""
 
 #: includes/class-quora-importer.php:953
 msgid "Cleanup completed successfully."
-msgstr "Nettoyage terminé avec succès."
+msgstr ""
 
 #: includes/class-quora-importer.php:955
 msgid "No folder to clean up."
-msgstr "Aucun dossier à nettoyer."
+msgstr ""
 
 #: includes/class-quora-importer.php:2353
 #, php-format
 msgid "Python scraper failed with exit code %d"
-msgstr "Le scraper Python a échoué avec le code de retour %d"
+msgstr ""
 
 #: includes/class-quora-importer.php:2377
 #, php-format
 msgid "HTTP error %d"
-msgstr "Erreur HTTP %d"
+msgstr ""
 
 #: includes/class-quora-importer.php:2383
 msgid "Empty response body"
-msgstr "Corps de réponse vide"
+msgstr ""
 
 #: includes/class-quora-importer.php:2434
 msgid "Comments scraper script not found."
-msgstr "Script de récupération des commentaires introuvable."
+msgstr ""
 
 #: includes/class-quora-importer.php:2466
-#, fuzzy
 msgid "Failed to execute comments scraper."
-msgstr "Échec de l'exécution du scraper de commentaires."
+msgstr ""
 
 #: includes/class-quora-importer.php:2471
 msgid "Invalid scraper response format."
-msgstr "Format de réponse du scraper invalide."
+msgstr ""
 
 #: includes/class-quora-importer.php:2713
 msgid "Quora Importer - URL de l'article"
-msgstr "Quora Importer - URL de l'article"
+msgstr ""
 
 #: includes/class-quora-importer.php:2736
 #: includes/class-quora-importer.php:2840
 #: includes/class-quora-importer.php:2850
 msgid "Non testé"
-msgstr "Non testé"
+msgstr ""
 
 #: includes/class-quora-importer.php:2739
 #: includes/class-quora-importer.php:2828
 msgid "Valide"
-msgstr "Valide"
+msgstr ""
 
 #: includes/class-quora-importer.php:2742
 #: includes/class-quora-importer.php:2833
 msgid "Invalide"
-msgstr "Invalide"
+msgstr ""
 
 #: includes/class-quora-importer.php:2747
 msgid "URL de la réponse Quora :"
-msgstr "URL de la réponse Quora :"
+msgstr ""
 
 #: includes/class-quora-importer.php:2758
 #: includes/class-quora-importer.php:2820
 #: includes/class-quora-importer.php:2848
 msgid "Tester"
-msgstr "Tester"
+msgstr ""
 
 #: includes/class-quora-importer.php:2767
 #: includes/class-quora-importer.php:2883
 #: includes/class-quora-importer.php:2893
 msgid "Importer les étiquettes"
-msgstr "Importer les étiquettes"
+msgstr ""
 
 #: includes/class-quora-importer.php:2771
 #: includes/class-quora-importer.php:2925
 #: includes/class-quora-importer.php:2935
 msgid "Mettre à jour les commentaires"
-msgstr "Mettre à jour les commentaires"
+msgstr ""
 
 #: includes/class-quora-importer.php:2805
 msgid "Validation..."
-msgstr "Validation..."
+msgstr ""
 
 #: includes/class-quora-importer.php:2838
 msgid "Erreur de connexion."
-msgstr "Erreur de connexion."
+msgstr ""
 
 #: includes/class-quora-importer.php:2851
 #: includes/class-quora-importer.php:2894
 #: includes/class-quora-importer.php:2936
 msgid "Erreur de communication."
-msgstr "Erreur de communication."
+msgstr ""
 
 #: includes/class-quora-importer.php:2868
-#, fuzzy
 msgid "Importation..."
-msgstr "Importation..."
+msgstr ""
 
 #: includes/class-quora-importer.php:2910
 msgid "Mise à jour..."
-msgstr "Mise à jour..."
+msgstr ""
 
 #: includes/class-quora-importer.php:3016
 #: includes/class-quora-importer.php:3079
 #: includes/class-quora-importer.php:3127
 msgid "Permission denied."
-msgstr "Permission refusée."
+msgstr ""
 
 #: includes/class-quora-importer.php:3023
 #: includes/class-quora-importer.php:3086
 #: includes/class-quora-importer.php:3134
 msgid "Veuillez saisir une URL valide."
-msgstr "Veuillez saisir une URL valide."
+msgstr ""
 
 #: includes/class-quora-importer.php:3068
 msgid "URL Valide"
-msgstr "URL Valide"
+msgstr ""
 
 #: includes/class-quora-importer.php:3068
 msgid "URL Invalide (Page non trouvée)"
-msgstr "URL Invalide (Page non trouvée)"
+msgstr ""
 
 #: includes/class-quora-importer.php:3106
 #, php-format
 msgid "%d étiquette importée avec succès."
 msgid_plural "%d étiquettes importées avec succès."
-msgstr[0] "%d étiquette importée avec succès."
-msgstr[1] "%d étiquettes importées avec succès."
+msgstr[0] ""
+msgstr[1] ""
 
 #: includes/class-quora-importer.php:3112
 msgid "Aucune étiquette trouvée ou échec de l'extraction."
-msgstr "Aucune étiquette trouvée ou échec de l'extraction."
+msgstr ""
 
 #: includes/class-quora-importer.php:3115
 #, php-format
 msgid "Échec de l'importation : %s"
-msgstr "Échec de l'importation : %s"
+msgstr ""
 
 #: includes/class-quora-importer.php:3149
 #, php-format
 msgid "%d commentaire importé ou mis à jour."
 msgid_plural "%d commentaires importés ou mis à jour."
-msgstr[0] "%d commentaire importé ou mis à jour."
-msgstr[1] "%d commentaires importés ou mis à jour."
+msgstr[0] ""
+msgstr[1] ""
 
 #: includes/class-quora-importer.php:3156
 #, php-format
 msgid "Échec de la mise à jour : %s"
-msgstr "Échec de la mise à jour : %s"
-
-#~ msgid "Invalid file extension. Please use .zip or .html."
-#~ msgstr "Extension de fichier invalide. Utilisez .zip ou .html."
-
-#~ msgid "Failed to move uploaded file."
-#~ msgstr "Échec du déplacement du fichier téléversé."
-
-#~ msgid "Could not find index.html inside the ZIP archive."
-#~ msgstr "Impossible de trouver le fichier index.html dans le fichier ZIP."
-
-#~ msgid "No eligible posts found inside index.html."
-#~ msgstr "Aucun article éligible n'a été trouvé dans le fichier index.html."
-
-#~ msgid "Post imported successfully (ID: %1$d, images: %2$d, topics: %3$d)."
-#~ msgstr ""
-#~ "Article importé avec succès (ID : %1$d, images : %2$d, étiquettes : %3$d)."
-
-#~ msgid "Post already exists. Updated topics/tags (ID: %1$d, topics: %2$d)."
-#~ msgstr ""
-#~ "L'article existe déjà. Étiquettes mises à jour (ID : %1$d, étiquettes : "
-#~ "%2$d)."
-
-#~ msgid ""
-#~ "This post already exists in WordPress. Warning: Topic extraction failed "
-#~ "(%s)."
-#~ msgstr ""
-#~ "Cet article existe déjà dans WordPress. Attention : l'extraction des "
-#~ "étiquettes a échoué (%s)."
-
-#~ msgid ""
-#~ "Post imported successfully (ID: %1$d, images: %2$d). Warning: Topic "
-#~ "extraction failed (%3$s)."
-#~ msgstr ""
-#~ "Article importé avec succès (ID : %1$d, images : %2$d). Attention : "
-#~ "l'extraction des étiquettes a échoué (%3$s)."
+msgstr ""

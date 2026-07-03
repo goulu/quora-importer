@@ -20,6 +20,7 @@ jQuery(document).ready(function($) {
     let imagesCount = 0;
     let isPaused = false;
     let isImporting = false;
+    let uploadWarnings = [];
     
     // DOM Elements
     const $container = $('#quora-importer-container');
@@ -158,6 +159,7 @@ jQuery(document).ready(function($) {
     function setupOptionsForm(data) {
         sessionId = data.session_id;
         totalPosts = data.total_posts;
+        uploadWarnings = data.warnings || [];
         
         // Fill statistics
         let summaryText = quoraImporter.strings.posts_found.replace('%d', data.total_posts);
@@ -278,6 +280,13 @@ jQuery(document).ready(function($) {
         
         showStep('quora-step-progress');
         addLog(quoraImporter.strings.import_started.replace('%d', totalPosts), 'info');
+        
+        // Print upload warnings if any
+        if (uploadWarnings && uploadWarnings.length > 0) {
+            $.each(uploadWarnings, function(idx, warn) {
+                addLog(warn, 'warning');
+            });
+        }
         
         // Start sequential AJAX loop
         importNextItem();
