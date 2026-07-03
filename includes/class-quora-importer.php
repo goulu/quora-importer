@@ -689,37 +689,24 @@ class Quora_Importer {
                 wp_set_post_categories( $existing->ID, $categories );
             }
 
-            // Always update candidates and URL
-            $candidate_urls = $this->get_candidate_urls( $post, $extracted_dir, $author_id );
+            $extracted_topics = array();
+            $candidate_urls = array();
+            $quora_url = $this->find_best_quora_url( $post, $extracted_dir, $author_id, $is_published, $extract_topics, $extracted_topics, $candidate_urls );
+            
             update_post_meta( $existing->ID, '_quora_candidate_urls', $candidate_urls );
             
-            $quora_url = '';
-            if ( ! empty( $candidate_urls ) ) {
-                $quora_url = $candidate_urls[0];
-            }
-            
-            // If topic extraction is requested, validate the URL
-            $extracted_topics = array();
             if ( $is_published && $extract_topics ) {
-                $valid_url = '';
-                foreach ( $candidate_urls as $candidate ) {
-                    $topics = $this->extract_quora_topics( $candidate );
-                    if ( ! empty( $topics ) ) {
-                        $extracted_topics = $topics;
-                        $valid_url = $candidate;
-                        break;
-                    }
-                }
-                
-                if ( ! empty( $extracted_topics ) ) {
-                    update_post_meta( $existing->ID, '_quora_url', $valid_url );
+                if ( ! empty( $extracted_topics ) || ( ! empty( $quora_url ) && $this->test_url_http_status( $quora_url ) === 200 ) ) {
+                    update_post_meta( $existing->ID, '_quora_url', $quora_url );
                     update_post_meta( $existing->ID, '_quora_url_status', 'valid' );
-                    $current_tags = wp_get_post_tags( $existing->ID, array( 'fields' => 'names' ) );
-                    if ( is_wp_error( $current_tags ) ) {
-                        $current_tags = array();
+                    if ( ! empty( $extracted_topics ) ) {
+                        $current_tags = wp_get_post_tags( $existing->ID, array( 'fields' => 'names' ) );
+                        if ( is_wp_error( $current_tags ) ) {
+                            $current_tags = array();
+                        }
+                        $new_tags = array_unique( array_merge( $current_tags, $extracted_topics ) );
+                        wp_set_post_tags( $existing->ID, $new_tags, false );
                     }
-                    $new_tags = array_unique( array_merge( $current_tags, $extracted_topics ) );
-                    wp_set_post_tags( $existing->ID, $new_tags, false );
                 } else {
                     update_post_meta( $existing->ID, '_quora_url_status', 'invalid' );
                     if ( ! empty( $quora_url ) ) {
@@ -727,7 +714,6 @@ class Quora_Importer {
                     }
                 }
             } else {
-                // If not testing topics, update the URL and mark it as untested
                 if ( ! empty( $quora_url ) ) {
                     update_post_meta( $existing->ID, '_quora_url', $quora_url );
                     update_post_meta( $existing->ID, '_quora_url_status', 'untested' );
@@ -755,24 +741,9 @@ class Quora_Importer {
         }
         
         // Generate Quora URL if link is requested or topics extraction is enabled (topics only if published)
-        $quora_url = '';
         $extracted_topics = array();
-        $candidate_urls = $this->get_candidate_urls( $post, $extracted_dir, $author_id );
-        
-        if ( $is_published && $extract_topics ) {
-            foreach ( $candidate_urls as $candidate ) {
-                $topics = $this->extract_quora_topics( $candidate );
-                if ( ! empty( $topics ) ) {
-                    $extracted_topics = $topics;
-                    $quora_url = $candidate;
-                    break;
-                }
-            }
-        }
-        
-        if ( empty( $quora_url ) && ! empty( $candidate_urls ) ) {
-            $quora_url = $candidate_urls[0];
-        }
+        $candidate_urls = array();
+        $quora_url = $this->find_best_quora_url( $post, $extracted_dir, $author_id, $is_published, $extract_topics, $extracted_topics, $candidate_urls );
  
         // Add link to Quora if requested
         if ( $link_position !== 'none' && ! empty( $link_template ) && ! empty( $quora_url ) ) {
@@ -1511,6 +1482,182 @@ class Quora_Importer {
             return $matches[0];
         }, $content );
     }
+
+    /**
+     * Get python executable path
+     */
+    private function get_python_executable() {
+        $python_executable = 'python3';
+        $possible_paths = array(
+            '/usr/bin/python3',
+            '/usr/local/bin/python3',
+            '/bin/python3',
+            '/usr/bin/python',
+        );
+        foreach ( $possible_paths as $path ) {
+            if ( @is_executable( $path ) ) {
+                $python_executable = $path;
+                break;
+            }
+        }
+        return $python_executable;
+    }
+
+    /**
+     * Check if Selenium is installed and importable via Python
+     */
+    private function is_selenium_available() {
+        $python_executable = $this->get_python_executable();
+        $cmd = escapeshellcmd( $python_executable ) . ' -c "import selenium" 2>&1';
+        $output = array();
+        $retval = 0;
+        exec( $cmd, $output, $retval );
+        return ( 0 === $retval );
+    }
+
+    /**
+     * Get HTTP status code of a URL using a lightweight python script
+     */
+    private function test_url_http_status( $url ) {
+        $python_executable = $this->get_python_executable();
+        $py_cmd = 'import sys, cloudscraper; s = cloudscraper.create_scraper(); r = s.get(sys.argv[1], timeout=5); print(r.status_code)';
+        $cmd = escapeshellcmd( $python_executable ) . ' -c ' . escapeshellarg( $py_cmd ) . ' ' . escapeshellarg( $url );
+        $output = array();
+        $retval = 0;
+        exec( $cmd, $output, $retval );
+        return isset( $output[0] ) ? intval( trim( $output[0] ) ) : 0;
+    }
+
+    /**
+     * Fallback to search Quora homepage using Selenium when standard URL search fails
+     */
+    private function search_quora_url_via_selenium( $title, $author_id, $post ) {
+        if ( ! $this->is_selenium_available() ) {
+            return '';
+        }
+
+        $python_script = plugin_dir_path( __FILE__ ) . 'search-quora.py';
+        if ( ! file_exists( $python_script ) ) {
+            return '';
+        }
+
+        // 1. Get user profile slug
+        $profile_slug = '';
+        if ( ! empty( $author_id ) ) {
+            $user_data = get_userdata( $author_id );
+            if ( $user_data ) {
+                $nickname = get_user_meta( $author_id, 'nickname', true );
+                if ( empty( $nickname ) ) {
+                    $nickname = $user_data->display_name;
+                }
+                if ( ! empty( $nickname ) ) {
+                    $normalized = remove_accents( $nickname );
+                    $cleaned_name = preg_replace( '/[^A-Za-z0-9_\-\s]/', '', $normalized );
+                    $profile_slug = str_replace( array( ' ', '_' ), '-', $cleaned_name );
+                    $profile_slug = preg_replace( '/-+/', '-', $profile_slug );
+                }
+            }
+        }
+        if ( empty( $profile_slug ) ) {
+            $folder_name = basename( isset( $post['extracted_dir'] ) ? $post['extracted_dir'] : '' );
+            if ( strpos( $folder_name, 'Contenu_' ) === 0 ) {
+                $name = substr( $folder_name, 8 );
+                $name = preg_replace( '/_\d+$/', '', $name );
+                $profile_slug = str_replace( '_', '-', $name );
+            }
+        }
+        if ( empty( $profile_slug ) ) {
+            $profile_slug = 'user';
+        }
+
+        // 2. Get language code
+        $content_lang = ! empty( $post['Content language'] ) ? strtolower( $post['Content language'] ) : 'français';
+        $lang_code = 'fr';
+        if ( strpos( $content_lang, 'fran' ) !== false || strpos( $content_lang, 'fr' ) === 0 ) {
+            $lang_code = 'fr';
+        } elseif ( strpos( $content_lang, 'eng' ) !== false || strpos( $content_lang, 'ang' ) !== false || strpos( $content_lang, 'en' ) === 0 ) {
+            $lang_code = 'en';
+        } elseif ( strpos( $content_lang, 'es' ) === 0 || strpos( $content_lang, 'esp' ) !== false ) {
+            $lang_code = 'es';
+        } elseif ( strpos( $content_lang, 'de' ) === 0 || strpos( $content_lang, 'all' ) !== false ) {
+            $lang_code = 'de';
+        } elseif ( strpos( $content_lang, 'it' ) === 0 || strpos( $content_lang, 'ita' ) !== false ) {
+            $lang_code = 'it';
+        }
+
+        $python_executable = $this->get_python_executable();
+        $cmd = escapeshellcmd( $python_executable ) . ' ' . escapeshellarg( $python_script ) . ' ' . escapeshellarg( $title ) . ' ' . escapeshellarg( $profile_slug ) . ' ' . escapeshellarg( $lang_code );
+        
+        $output = array();
+        $retval = null;
+        exec( $cmd, $output, $retval );
+
+        if ( 0 === $retval && ! empty( $output ) ) {
+            $response_data = $this->decode_shell_json( $output );
+            if ( is_array( $response_data ) && ! empty( $response_data['success'] ) && ! empty( $response_data['url'] ) ) {
+                return $response_data['url'];
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Resolves the best Quora URL for a post using candidate generation and Selenium search fallback.
+     */
+    private function find_best_quora_url( $post, $extracted_dir, $author_id, $is_published, $extract_topics, &$extracted_topics, &$candidate_urls ) {
+        $candidate_urls = $this->get_candidate_urls( $post, $extracted_dir, $author_id );
+        $quora_url = '';
+        $extracted_topics = array();
+
+        if ( $is_published ) {
+            if ( $extract_topics ) {
+                foreach ( $candidate_urls as $candidate ) {
+                    $topics = $this->extract_quora_topics( $candidate );
+                    if ( ! empty( $topics ) ) {
+                        $extracted_topics = $topics;
+                        $quora_url = $candidate;
+                        break;
+                    }
+                }
+            } else {
+                if ( ! empty( $candidate_urls ) ) {
+                    $status_code = $this->test_url_http_status( $candidate_urls[0] );
+                    if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
+                        $quora_url = $candidate_urls[0];
+                    }
+                }
+            }
+
+            // Fallback Search via Selenium
+            if ( empty( $quora_url ) && $this->is_selenium_available() ) {
+                $title_for_search = ! empty( $post['Question'] ) ? $post['Question'] : ( ! empty( $post['Title'] ) ? $post['Title'] : '' );
+                if ( empty( $title_for_search ) && ! empty( $post['Content'] ) ) {
+                    $title_for_search = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
+                }
+                $title_for_search = preg_replace( '/\[\/?math\]/i', '$', $title_for_search );
+
+                $searched_url = $this->search_quora_url_via_selenium( $title_for_search, $author_id, $post );
+                if ( ! empty( $searched_url ) ) {
+                    $topics = $this->extract_quora_topics( $searched_url );
+                    if ( ! empty( $topics ) || $this->test_url_http_status( $searched_url ) === 200 ) {
+                        $quora_url = $searched_url;
+                        if ( ! empty( $topics ) ) {
+                            $extracted_topics = $topics;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ( empty( $quora_url ) && ! empty( $candidate_urls ) ) {
+            $quora_url = $candidate_urls[0];
+        }
+
+        return $quora_url;
+    }
+
+
 
     
     /**
@@ -2553,7 +2700,6 @@ class Quora_Importer {
 
         $quora_url = get_post_meta( $post->ID, '_quora_url', true );
         $quora_status = get_post_meta( $post->ID, '_quora_url_status', true );
-        $quora_override = get_post_meta( $post->ID, '_quora_url_override', true );
         if ( empty( $quora_status ) ) {
             $quora_status = 'untested';
         }
@@ -2574,10 +2720,6 @@ class Quora_Importer {
             <p>
                 <label for="quora_url_input" style="font-weight: 600; display: block; margin-bottom: 5px;"><?php _e( 'URL de la réponse Quora :', 'quora-importer' ); ?></label>
                 <input type="url" id="quora_url_input" name="quora_url" value="<?php echo esc_attr( $quora_url ); ?>" style="width: 100%; box-sizing: border-box;" placeholder="https://fr.quora.com/... /answer/..." />
-            </p>
-            <p style="margin-top: 10px; margin-bottom: 10px;">
-                <input type="checkbox" id="quora_url_override_input" name="quora_url_override" value="1" <?php checked( $quora_override, '1' ); ?> />
-                <label for="quora_url_override_input" style="font-weight: 500; font-size: 13px; color: #555;"><?php _e( 'Verrouiller cette URL (ne pas écraser)', 'quora-importer' ); ?></label>
             </p>
             
             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 15px; margin-bottom: 10px;">
@@ -2794,9 +2936,6 @@ class Quora_Importer {
         if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
             return;
         }
-
-        $override_val = isset( $_POST['quora_url_override'] ) ? '1' : '0';
-        update_post_meta( $post_id, '_quora_url_override', $override_val );
 
         if ( isset( $_POST['quora_url'] ) ) {
             $new_url = esc_url_raw( trim( $_POST['quora_url'] ) );
@@ -3264,6 +3403,27 @@ class Quora_Importer {
                             } else {
                                 $status = ( $status_code > 0 && $status_code !== 404 ) ? 'valid' : 'invalid';
                             }
+
+                            if ( $status === 'invalid' && $this->is_selenium_available() ) {
+                                echo "  URL test failed. Trying search fallback via Selenium...\n";
+                                $title_for_search = ! empty( $post['Question'] ) ? $post['Question'] : ( ! empty( $post['Title'] ) ? $post['Title'] : '' );
+                                if ( empty( $title_for_search ) && ! empty( $post['Content'] ) ) {
+                                    $title_for_search = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
+                                }
+                                $title_for_search = preg_replace( '/\[\/?math\]/i', '$', $title_for_search );
+                                $searched_url = $this->search_quora_url_via_selenium( $title_for_search, $matched_post->post_author, $post );
+                                if ( ! empty( $searched_url ) ) {
+                                    echo "  Found URL via search: $searched_url. Verifying...\n";
+                                    $verify_status_code = $test_url_status( $searched_url );
+                                    if ( $verify_status_code === 200 || ( $verify_status_code > 0 && $verify_status_code !== 404 ) ) {
+                                        $url_to_test = $searched_url;
+                                        $status = 'valid';
+                                        echo "  Verification: SUCCESS\n";
+                                    } else {
+                                        echo "  Verification: FAILED ($verify_status_code)\n";
+                                    }
+                                }
+                            }
                         }
                         
                         update_post_meta( $matched_post->ID, '_quora_url', $url_to_test );
@@ -3492,6 +3652,28 @@ class Quora_Importer {
                     if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
                         $valid_url = $candidate_url;
                         break;
+                    }
+                }
+            }
+            
+            if ( ! $valid_url && $this->is_selenium_available() ) {
+                echo "  No valid candidate found. Trying search fallback via Selenium...\n";
+                $mock_post = array(
+                    'Content' => $db_post->post_content,
+                    'type' => $is_answer ? 'Répondre' : 'Question',
+                    'Content language' => ( strpos( $domain, 'fr.quora' ) !== false || strpos( $domain, 'reponsesfrequentes' ) !== false ) ? 'Français' : 'English',
+                );
+                $title_for_search = $db_post->post_title;
+                $title_for_search = preg_replace( '/\[\/?math\]/i', '$', $title_for_search );
+                $searched_url = $this->search_quora_url_via_selenium( $title_for_search, $db_post->post_author, $mock_post );
+                if ( ! empty( $searched_url ) ) {
+                    echo "  Found URL via search: $searched_url. Verifying...\n";
+                    $verify_status_code = $test_url_status( $searched_url );
+                    if ( $verify_status_code === 200 || ( $verify_status_code > 0 && $verify_status_code !== 404 ) ) {
+                        $valid_url = $searched_url;
+                        echo "  Verification: SUCCESS\n";
+                    } else {
+                        echo "  Verification: FAILED ($verify_status_code)\n";
                     }
                 }
             }
