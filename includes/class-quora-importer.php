@@ -204,7 +204,7 @@ class Quora_Importer {
                     <div class="quora-form-row">
                         <label for="quora-min-chars-publish"><?php esc_html_e( 'Publish if text is longer than:', 'quora-importer' ); ?></label>
                         <div>
-                            <input type="number" id="quora-min-chars-publish" name="min_chars_publish" value="500" min="0" />
+                            <input type="number" id="quora-min-chars-publish" name="min_chars_publish" value="0" min="0" />
                             <span class="help-desc" style="display: block; margin-top: 4px;"><?php esc_html_e( 'characters (shorter published originals, or drafts, will be imported as Draft).', 'quora-importer' ); ?></span>
                         </div>
                     </div>
@@ -553,7 +553,7 @@ class Quora_Importer {
         $session_id = isset( $_POST['session_id'] ) ? sanitize_text_field( wp_unslash( $_POST['session_id'] ) ) : '';
         $item_index = isset( $_POST['item_index'] ) ? intval( wp_unslash( $_POST['item_index'] ) ) : -1;
         $author_id = isset( $_POST['author_id'] ) ? intval( wp_unslash( $_POST['author_id'] ) ) : get_current_user_id();
-        $min_chars_publish = isset( $_POST['min_chars_publish'] ) ? intval( wp_unslash( $_POST['min_chars_publish'] ) ) : 500;
+        $min_chars_publish = isset( $_POST['min_chars_publish'] ) ? intval( wp_unslash( $_POST['min_chars_publish'] ) ) : 0;
         $import_images = ! empty( $_POST['import_images'] );
         $set_featured = ! empty( $_POST['set_featured'] );
         $extract_topics = ! empty( $_POST['extract_topics'] );
@@ -715,7 +715,7 @@ class Quora_Importer {
             
             update_post_meta( $existing->ID, '_quora_candidate_urls', $candidate_urls );
             
-            if ( $is_published && $extract_topics ) {
+            if ( $extract_topics ) {
                 if ( ! empty( $extracted_topics ) || ( ! empty( $quora_url ) && $this->test_url_http_status( $quora_url ) === 200 ) ) {
                     update_post_meta( $existing->ID, '_quora_url', $quora_url );
                     update_post_meta( $existing->ID, '_quora_url_status', 'valid' );
@@ -854,7 +854,7 @@ class Quora_Importer {
         if ( ! empty( $quora_urls ) ) {
             $initial_url = $quora_url;
             $initial_status = 'untested';
-            if ( $extract_topics && $is_published ) {
+            if ( $extract_topics ) {
                 if ( ! empty( $extracted_topics ) ) {
                     $initial_status = 'valid';
                 } else {
@@ -1552,22 +1552,20 @@ class Quora_Importer {
         $quora_url = '';
         $extracted_topics = array();
 
-        if ( $is_published ) {
-            if ( $extract_topics ) {
-                foreach ( $candidate_urls as $candidate ) {
-                    $topics = $this->extract_quora_topics( $candidate );
-                    if ( ! empty( $topics ) ) {
-                        $extracted_topics = $topics;
-                        $quora_url = $candidate;
-                        break;
-                    }
+        if ( $extract_topics ) {
+            foreach ( $candidate_urls as $candidate ) {
+                $topics = $this->extract_quora_topics( $candidate );
+                if ( ! empty( $topics ) ) {
+                    $extracted_topics = $topics;
+                    $quora_url = $candidate;
+                    break;
                 }
-            } else {
-                if ( ! empty( $candidate_urls ) ) {
-                    $status_code = $this->test_url_http_status( $candidate_urls[0] );
-                    if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
-                        $quora_url = $candidate_urls[0];
-                    }
+            }
+        } else {
+            if ( ! empty( $candidate_urls ) ) {
+                $status_code = $this->test_url_http_status( $candidate_urls[0] );
+                if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
+                    $quora_url = $candidate_urls[0];
                 }
             }
         }
@@ -3212,16 +3210,6 @@ class Quora_Importer {
                 }
                 
                 if ( $matched_post ) {
-                    // Check if it's a draft
-                    $is_draft = ( strpos( strtolower( $post['type'] ), 'brouillon' ) !== false || strpos( strtolower( $post['type'] ), 'draft' ) !== false );
-                    if ( $is_draft ) {
-                        $this->cli_log( "Matched WordPress Post ID: {$matched_post->ID} (Draft - skipping URL validation)\n" );
-                        update_post_meta( $matched_post->ID, '_quora_url_status', 'valid' );
-                        delete_post_meta( $matched_post->ID, '_quora_url' );
-                        delete_post_meta( $matched_post->ID, '_quora_candidate_urls' );
-                        continue;
-                    }
-
                     $matched_count++;
                     $this->cli_log( "Matched WordPress Post ID: {$matched_post->ID}\n" );
                     $this->cli_log( "  Old Title: '{$matched_post->post_title}'\n" );

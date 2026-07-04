@@ -6,7 +6,7 @@ jQuery(document).ready(function($) {
     let importImages = 1;
     let setFeatured = 1;
     let authorId = 1;
-    let minCharsPublish = 500;
+    let minCharsPublish = 0;
     let linkPosition = 'none';
     let linkTemplate = '';
     let enabledTypes = [];
@@ -237,7 +237,8 @@ jQuery(document).ready(function($) {
         
         // Collect form data
         authorId = $('#quora-post-author').val();
-        minCharsPublish = parseInt($('#quora-min-chars-publish').val()) || 500;
+        const val = $('#quora-min-chars-publish').val();
+        minCharsPublish = val !== "" && !isNaN(val) ? parseInt(val) : 0;
         linkPosition = $('#quora-link-position').val();
         linkTemplate = $('#quora-link-template').val();
         importImages = $('#quora-import-images').is(':checked') ? 1 : 0;
