@@ -731,6 +731,10 @@ class Quora_Importer {
                     update_post_meta( $existing->ID, '_quora_url_status', 'invalid' );
                     if ( ! empty( $quora_url ) ) {
                         update_post_meta( $existing->ID, '_quora_url', $quora_url );
+                        $status_code = $this->test_url_http_status( $quora_url );
+                        if ( $status_code === 404 ) {
+                            $this->log_404( $title, $quora_url );
+                        }
                     }
                 }
             } else {
@@ -859,6 +863,12 @@ class Quora_Importer {
                     $initial_status = 'valid';
                 } else {
                     $initial_status = 'invalid';
+                    if ( ! empty( $initial_url ) ) {
+                        $status_code = $this->test_url_http_status( $initial_url );
+                        if ( $status_code === 404 ) {
+                            $this->log_404( $title, $initial_url );
+                        }
+                    }
                 }
             }
             update_post_meta( $post_id, '_quora_url', $initial_url );
@@ -1532,6 +1542,17 @@ class Quora_Importer {
 
 
     /**
+     * Log 404 URL errors to a log file
+     */
+    private function log_404( $title, $url ) {
+        $dir = defined( 'QUORA_IMPORTER_PATH' ) ? QUORA_IMPORTER_PATH : plugin_dir_path( __DIR__ );
+        $log_file = $dir . 'quora-404.log';
+        $timestamp = current_time( 'mysql' );
+        $log_message = sprintf( "[%s] Title: \"%s\" | Tested URL: %s\n", $timestamp, $title, $url );
+        @file_put_contents( $log_file, $log_message, FILE_APPEND );
+    }
+
+    /**
      * Get HTTP status code of a URL using a lightweight python script
      */
     private function test_url_http_status( $url ) {
@@ -1566,6 +1587,12 @@ class Quora_Importer {
                 $status_code = $this->test_url_http_status( $candidate_urls[0] );
                 if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
                     $quora_url = $candidate_urls[0];
+                } elseif ( $status_code === 404 ) {
+                    $title_for_log = ! empty( $post['Question'] ) ? $post['Question'] : ( ! empty( $post['Title'] ) ? $post['Title'] : '' );
+                    if ( empty( $title_for_log ) ) {
+                        $title_for_log = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
+                    }
+                    $this->log_404( $title_for_log, $candidate_urls[0] );
                 }
             }
         }
@@ -1907,27 +1934,46 @@ class Quora_Importer {
             $title = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
         }
         
-        $has_apostrophes = ( false !== strpos( $title, "'" ) || false !== strpos( $title, "’" ) );
-        if ( $has_apostrophes ) {
+        $urls = array();
+        
+        // 1. Try direct URL from post fields first if available
+        $direct_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
+        if ( ! empty( $direct_url ) && $this->validate_quora_url( $direct_url ) ) {
+            $urls[] = $direct_url;
+        }
+        
+        // 2. Always generate slug-based candidates from the title as fallbacks
+        if ( ! empty( $title ) ) {
             $url_a = $this->generate_quora_url( $post, $extracted_dir, $author_id, true, true );
             $url_b = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, true );
-            $direct_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
             
-            $urls = array();
-            if ( ! empty( $direct_url ) && $this->validate_quora_url( $direct_url ) ) {
-                $urls[] = $direct_url;
-            }
             if ( ! empty( $url_a ) && $this->validate_quora_url( $url_a ) && ! in_array( $url_a, $urls ) ) {
                 $urls[] = $url_a;
             }
             if ( ! empty( $url_b ) && $this->validate_quora_url( $url_b ) && ! in_array( $url_b, $urls ) ) {
                 $urls[] = $url_b;
             }
-            return $urls;
+        }
+
+        // Add suffixed versions (-1 and -2) at the end of urls as a last resort
+        $suffixed_urls = array();
+        foreach ( $urls as $url ) {
+            if ( preg_match( '#^(https?://[^/]+/)([^/]+)(/answer/[^/]+)$#i', $url, $matches ) ) {
+                $suffixed_urls[] = $matches[1] . $matches[2] . '-1' . $matches[3];
+                $suffixed_urls[] = $matches[1] . $matches[2] . '-2' . $matches[3];
+            } else {
+                $trimmed_url = rtrim( $url, '/' );
+                $suffixed_urls[] = $trimmed_url . '-1';
+                $suffixed_urls[] = $trimmed_url . '-2';
+            }
+        }
+        foreach ( $suffixed_urls as $s_url ) {
+            if ( ! in_array( $s_url, $urls ) ) {
+                $urls[] = $s_url;
+            }
         }
         
-        $quora_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
-        return array( $quora_url );
+        return $urls;
     }
 
     /**
@@ -2005,11 +2051,11 @@ class Quora_Importer {
         $title = preg_replace( '/\[\/?math\]/i', '', $title );
 
         if ( $replace_apostrophes ) {
-            // Option A: replace apostrophes with spaces (which become hyphens)
-            $title = str_replace( array( "'", '’' ), ' ', $title );
+            // Option A: replace apostrophes, periods, and accent typos with spaces (which become hyphens)
+            $title = str_replace( array( "'", '’', '.', '´', '`' ), ' ', $title );
         } else {
-            // Option B: delete all apostrophes
-            $title = str_replace( array( "'", '’' ), '', $title );
+            // Option B: delete all apostrophes, periods, and accent typos
+            $title = str_replace( array( "'", '’', '.', '´', '`' ), '', $title );
         }
 
         // Replace slashes, underscores, carets, parentheses, brackets, and braces with spaces to prevent word merging
@@ -2017,17 +2063,17 @@ class Quora_Importer {
 
 
         
-        // Strip everything except letters, numbers, spaces, hyphens, and plus signs (preserving accents and case)
-        $slug = preg_replace( '/[^\p{L}\p{N}\s\-\+]/u', '', $title );
+        // Strip everything except letters, numbers, spaces, and hyphens (preserving accents and case)
+        $slug = preg_replace( '/[^\p{L}\p{N}\s\-]/u', '', $title );
         
         // Replace spaces/tabs and consecutive hyphens with a single hyphen
         $slug = preg_replace( '/[\s\-]+/u', '-', $slug );
         $slug = trim( $slug, '-' );
         
-        // Truncate slug to 190 UTF-8 characters to match Quora answer URLs
-        if ( mb_strlen( $slug, 'UTF-8' ) > 190 ) {
-            $truncated = mb_substr( $slug, 0, 190, 'UTF-8' );
-            $next_char = mb_substr( $slug, 190, 1, 'UTF-8' );
+        // Truncate slug to 190 bytes to match Quora answer URLs
+        if ( strlen( $slug ) > 190 ) {
+            $truncated = mb_strcut( $slug, 0, 190, 'UTF-8' );
+            $next_char = mb_strcut( $slug, strlen( $truncated ), 1, 'UTF-8' );
             if ( $next_char === '-' || $next_char === '' ) {
                 $slug = $truncated;
             } else {
@@ -2945,6 +2991,9 @@ class Quora_Importer {
             $status = 'valid';
         } elseif ( $status_code === 404 ) {
             $status = 'invalid';
+            $post = get_post( $post_id );
+            $title = $post ? $post->post_title : '';
+            $this->log_404( $title, $url );
         } else {
             $status = ( $status_code > 0 && $status_code !== 404 ) ? 'valid' : 'invalid';
         }
@@ -3301,6 +3350,7 @@ class Quora_Importer {
                                 $status = 'valid';
                             } elseif ( $status_code === 404 ) {
                                 $status = 'invalid';
+                                $this->log_404( $clean_title, $url_to_test );
                             } else {
                                 $status = ( $status_code > 0 && $status_code !== 404 ) ? 'valid' : 'invalid';
                             }
@@ -3487,6 +3537,24 @@ class Quora_Importer {
             // Clean up and unique candidates
             $candidates = array_unique( array_filter( $candidates ) );
             
+            // Add suffixed versions (-1 and -2) at the end of candidates as a last resort
+            $suffixed_candidates = array();
+            foreach ( $candidates as $cand ) {
+                if ( preg_match( '#^(https?://[^/]+/)([^/]+)(/answer/[^/]+)$#i', $cand, $matches ) ) {
+                    $suffixed_candidates[] = $matches[1] . $matches[2] . '-1' . $matches[3];
+                    $suffixed_candidates[] = $matches[1] . $matches[2] . '-2' . $matches[3];
+                } else {
+                    $trimmed_cand = rtrim( $cand, '/' );
+                    $suffixed_candidates[] = $trimmed_cand . '-1';
+                    $suffixed_candidates[] = $trimmed_cand . '-2';
+                }
+            }
+            foreach ( $suffixed_candidates as $s_cand ) {
+                if ( ! in_array( $s_cand, $candidates ) ) {
+                    $candidates[] = $s_cand;
+                }
+            }
+            
             // Validate candidates sequentially and stop at the first success
             $valid_url = '';
             
@@ -3526,6 +3594,8 @@ class Quora_Importer {
                     if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
                         $valid_url = $candidate_url;
                         break;
+                    } elseif ( $status_code === 404 ) {
+                        $this->log_404( $db_post->post_title, $candidate_url );
                     }
                 }
             }
