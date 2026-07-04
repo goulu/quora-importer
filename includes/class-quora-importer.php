@@ -1529,17 +1529,7 @@ class Quora_Importer {
         return $python_executable;
     }
 
-    /**
-     * Check if Selenium is installed and importable via Python
-     */
-    private function is_selenium_available() {
-        $python_executable = $this->get_python_executable();
-        $cmd = escapeshellcmd( $python_executable ) . ' -c "import selenium" 2>&1';
-        $output = array();
-        $retval = 0;
-        exec( $cmd, $output, $retval );
-        return ( 0 === $retval );
-    }
+
 
     /**
      * Get HTTP status code of a URL using a lightweight python script
@@ -1555,81 +1545,7 @@ class Quora_Importer {
     }
 
     /**
-     * Fallback to search Quora homepage using Selenium when standard URL search fails
-     */
-    private function search_quora_url_via_selenium( $title, $author_id, $post ) {
-        if ( ! $this->is_selenium_available() ) {
-            return '';
-        }
-
-        $python_script = plugin_dir_path( __FILE__ ) . 'search-quora.py';
-        if ( ! file_exists( $python_script ) ) {
-            return '';
-        }
-
-        // 1. Get user profile slug
-        $profile_slug = '';
-        if ( ! empty( $author_id ) ) {
-            $user_data = get_userdata( $author_id );
-            if ( $user_data ) {
-                $nickname = get_user_meta( $author_id, 'nickname', true );
-                if ( empty( $nickname ) ) {
-                    $nickname = $user_data->display_name;
-                }
-                if ( ! empty( $nickname ) ) {
-                    $normalized = remove_accents( $nickname );
-                    $cleaned_name = preg_replace( '/[^A-Za-z0-9_\-\s]/', '', $normalized );
-                    $profile_slug = str_replace( array( ' ', '_' ), '-', $cleaned_name );
-                    $profile_slug = preg_replace( '/-+/', '-', $profile_slug );
-                }
-            }
-        }
-        if ( empty( $profile_slug ) ) {
-            $folder_name = basename( isset( $post['extracted_dir'] ) ? $post['extracted_dir'] : '' );
-            if ( strpos( $folder_name, 'Contenu_' ) === 0 ) {
-                $name = substr( $folder_name, 8 );
-                $name = preg_replace( '/_\d+$/', '', $name );
-                $profile_slug = str_replace( '_', '-', $name );
-            }
-        }
-        if ( empty( $profile_slug ) ) {
-            $profile_slug = 'user';
-        }
-
-        // 2. Get language code
-        $content_lang = ! empty( $post['Content language'] ) ? strtolower( $post['Content language'] ) : 'français';
-        $lang_code = 'fr';
-        if ( strpos( $content_lang, 'fran' ) !== false || strpos( $content_lang, 'fr' ) === 0 ) {
-            $lang_code = 'fr';
-        } elseif ( strpos( $content_lang, 'eng' ) !== false || strpos( $content_lang, 'ang' ) !== false || strpos( $content_lang, 'en' ) === 0 ) {
-            $lang_code = 'en';
-        } elseif ( strpos( $content_lang, 'es' ) === 0 || strpos( $content_lang, 'esp' ) !== false ) {
-            $lang_code = 'es';
-        } elseif ( strpos( $content_lang, 'de' ) === 0 || strpos( $content_lang, 'all' ) !== false ) {
-            $lang_code = 'de';
-        } elseif ( strpos( $content_lang, 'it' ) === 0 || strpos( $content_lang, 'ita' ) !== false ) {
-            $lang_code = 'it';
-        }
-
-        $python_executable = $this->get_python_executable();
-        $cmd = escapeshellcmd( $python_executable ) . ' ' . escapeshellarg( $python_script ) . ' ' . escapeshellarg( $title ) . ' ' . escapeshellarg( $profile_slug ) . ' ' . escapeshellarg( $lang_code );
-        
-        $output = array();
-        $retval = null;
-        exec( $cmd, $output, $retval );
-
-        if ( 0 === $retval && ! empty( $output ) ) {
-            $response_data = $this->decode_shell_json( $output );
-            if ( is_array( $response_data ) && ! empty( $response_data['success'] ) && ! empty( $response_data['url'] ) ) {
-                return $response_data['url'];
-            }
-        }
-
-        return '';
-    }
-
-    /**
-     * Resolves the best Quora URL for a post using candidate generation and Selenium search fallback.
+     * Resolves the best Quora URL for a post using candidate generation.
      */
     private function find_best_quora_url( $post, $extracted_dir, $author_id, $is_published, $extract_topics, &$extracted_topics, &$candidate_urls ) {
         $candidate_urls = $this->get_candidate_urls( $post, $extracted_dir, $author_id );
@@ -1651,26 +1567,6 @@ class Quora_Importer {
                     $status_code = $this->test_url_http_status( $candidate_urls[0] );
                     if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
                         $quora_url = $candidate_urls[0];
-                    }
-                }
-            }
-
-            // Fallback Search via Selenium
-            if ( empty( $quora_url ) && $this->is_selenium_available() ) {
-                $title_for_search = ! empty( $post['Question'] ) ? $post['Question'] : ( ! empty( $post['Title'] ) ? $post['Title'] : '' );
-                if ( empty( $title_for_search ) && ! empty( $post['Content'] ) ) {
-                    $title_for_search = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
-                }
-                $title_for_search = preg_replace( '/\[\/?math\]/i', '$', $title_for_search );
-
-                $searched_url = $this->search_quora_url_via_selenium( $title_for_search, $author_id, $post );
-                if ( ! empty( $searched_url ) ) {
-                    $topics = $this->extract_quora_topics( $searched_url );
-                    if ( ! empty( $topics ) || $this->test_url_http_status( $searched_url ) === 200 ) {
-                        $quora_url = $searched_url;
-                        if ( ! empty( $topics ) ) {
-                            $extracted_topics = $topics;
-                        }
                     }
                 }
             }
@@ -3316,13 +3212,6 @@ class Quora_Importer {
                 }
                 
                 if ( $matched_post ) {
-                    // Check manual override
-                    $is_overridden = get_post_meta( $matched_post->ID, '_quora_url_override', true );
-                    if ( $is_overridden === '1' ) {
-                        $this->cli_log( "Matched WordPress Post ID: {$matched_post->ID} (URL locked - skipping updates)\n" );
-                        continue;
-                    }
-
                     // Check if it's a draft
                     $is_draft = ( strpos( strtolower( $post['type'] ), 'brouillon' ) !== false || strpos( strtolower( $post['type'] ), 'draft' ) !== false );
                     if ( $is_draft ) {
@@ -3427,27 +3316,6 @@ class Quora_Importer {
                             } else {
                                 $status = ( $status_code > 0 && $status_code !== 404 ) ? 'valid' : 'invalid';
                             }
-
-                            if ( $status === 'invalid' && $this->is_selenium_available() ) {
-                                $this->cli_log( "  URL test failed. Trying search fallback via Selenium...\n" );
-                                $title_for_search = ! empty( $post['Question'] ) ? $post['Question'] : ( ! empty( $post['Title'] ) ? $post['Title'] : '' );
-                                if ( empty( $title_for_search ) && ! empty( $post['Content'] ) ) {
-                                    $title_for_search = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
-                                }
-                                $title_for_search = preg_replace( '/\[\/?math\]/i', '$', $title_for_search );
-                                $searched_url = $this->search_quora_url_via_selenium( $title_for_search, $matched_post->post_author, $post );
-                                if ( ! empty( $searched_url ) ) {
-                                    $this->cli_log( "  Found URL via search: $searched_url. Verifying...\n" );
-                                    $verify_status_code = $test_url_status( $searched_url );
-                                    if ( $verify_status_code === 200 || ( $verify_status_code > 0 && $verify_status_code !== 404 ) ) {
-                                        $url_to_test = $searched_url;
-                                        $status = 'valid';
-                                        $this->cli_log( "  Verification: SUCCESS\n" );
-                                    } else {
-                                        $this->cli_log( "  Verification: FAILED ($verify_status_code)\n" );
-                                    }
-                                }
-                            }
                         }
                         
                         update_post_meta( $matched_post->ID, '_quora_url', $url_to_test );
@@ -3482,13 +3350,6 @@ class Quora_Importer {
         $this->cli_log( "Found " . count( $invalid_posts ) . " posts with invalid or missing Quora URL status.\n" );
 
         foreach ( $invalid_posts as $db_post ) {
-            // Check manual override
-            $is_overridden = get_post_meta( $db_post->ID, '_quora_url_override', true );
-            if ( $is_overridden === '1' ) {
-                $this->cli_log( "\nPost ID: {$db_post->ID} | Title: '{$db_post->post_title}' (URL locked - skipping updates)\n" );
-                continue;
-            }
-
             $this->cli_log( "\nRepairing Post ID: {$db_post->ID} | Current Title: '{$db_post->post_title}'\n" );
             
             // Try to find a valid URL using candidates
@@ -3677,28 +3538,6 @@ class Quora_Importer {
                     if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
                         $valid_url = $candidate_url;
                         break;
-                    }
-                }
-            }
-            
-            if ( ! $valid_url && $this->is_selenium_available() ) {
-                $this->cli_log( "  No valid candidate found. Trying search fallback via Selenium...\n" );
-                $mock_post = array(
-                    'Content' => $db_post->post_content,
-                    'type' => $is_answer ? 'Répondre' : 'Question',
-                    'Content language' => ( strpos( $domain, 'fr.quora' ) !== false || strpos( $domain, 'reponsesfrequentes' ) !== false ) ? 'Français' : 'English',
-                );
-                $title_for_search = $db_post->post_title;
-                $title_for_search = preg_replace( '/\[\/?math\]/i', '$', $title_for_search );
-                $searched_url = $this->search_quora_url_via_selenium( $title_for_search, $db_post->post_author, $mock_post );
-                if ( ! empty( $searched_url ) ) {
-                    $this->cli_log( "  Found URL via search: $searched_url. Verifying...\n" );
-                    $verify_status_code = $test_url_status( $searched_url );
-                    if ( $verify_status_code === 200 || ( $verify_status_code > 0 && $verify_status_code !== 404 ) ) {
-                        $valid_url = $searched_url;
-                        $this->cli_log( "  Verification: SUCCESS\n" );
-                    } else {
-                        $this->cli_log( "  Verification: FAILED ($verify_status_code)\n" );
                     }
                 }
             }
