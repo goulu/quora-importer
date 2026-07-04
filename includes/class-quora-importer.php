@@ -1542,6 +1542,17 @@ class Quora_Importer {
 
 
     /**
+     * Helper to append a suffix to a Quora URL (handling /answer/ structure safely)
+     */
+    private function append_suffix_to_url( $url, $suffix ) {
+        if ( preg_match( '#^(https?://[^/]+/)([^/]+)(/answer/[^/]+)$#i', $url, $matches ) ) {
+            return $matches[1] . $matches[2] . $suffix . $matches[3];
+        } else {
+            return rtrim( $url, '/' ) . $suffix;
+        }
+    }
+
+    /**
      * Log 404 URL errors to a log file
      */
     private function log_404( $title, $url ) {
@@ -1583,22 +1594,40 @@ class Quora_Importer {
                 }
             }
         } else {
-            if ( ! empty( $candidate_urls ) ) {
-                $status_code = $this->test_url_http_status( $candidate_urls[0] );
+            foreach ( $candidate_urls as $candidate ) {
+                $status_code = $this->test_url_http_status( $candidate );
                 if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
-                    $quora_url = $candidate_urls[0];
+                    $quora_url = $candidate;
+                    break;
                 } elseif ( $status_code === 404 ) {
                     $title_for_log = ! empty( $post['Question'] ) ? $post['Question'] : ( ! empty( $post['Title'] ) ? $post['Title'] : '' );
                     if ( empty( $title_for_log ) ) {
                         $title_for_log = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
                     }
-                    $this->log_404( $title_for_log, $candidate_urls[0] );
+                    $this->log_404( $title_for_log, $candidate );
                 }
             }
         }
 
         if ( empty( $quora_url ) && ! empty( $candidate_urls ) ) {
             $quora_url = $candidate_urls[0];
+        }
+
+        // Detect and save successful method
+        if ( ! empty( $quora_url ) ) {
+            $title = ! empty( $post['Question'] ) ? $post['Question'] : ( ! empty( $post['Title'] ) ? $post['Title'] : '' );
+            $direct_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
+            $url_a = ! empty( $title ) ? $this->generate_quora_url( $post, $extracted_dir, $author_id, true, true ) : '';
+            $url_b = ! empty( $title ) ? $this->generate_quora_url( $post, $extracted_dir, $author_id, false, true ) : '';
+            
+            $success_method = 'direct';
+            if ( ! empty( $url_b ) && ( $quora_url === $url_b || strpos( $quora_url, $url_b . '-' ) === 0 || strpos( $quora_url, rtrim( $url_b, '/' ) . '-' ) === 0 ) ) {
+                $success_method = 'slug_b';
+            } elseif ( ! empty( $url_a ) && ( $quora_url === $url_a || strpos( $quora_url, $url_a . '-' ) === 0 || strpos( $quora_url, rtrim( $url_a, '/' ) . '-' ) === 0 ) ) {
+                $success_method = 'slug_a';
+            }
+            
+            update_option( 'quora_importer_last_success_method', $success_method );
         }
 
         return $quora_url;
@@ -1934,42 +1963,48 @@ class Quora_Importer {
             $title = $this->get_post_title( $post, ! empty( $post['type'] ) ? $post['type'] : '' );
         }
         
-        $urls = array();
-        
-        // 1. Try direct URL from post fields first if available
         $direct_url = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, false );
+        $url_a = ! empty( $title ) ? $this->generate_quora_url( $post, $extracted_dir, $author_id, true, true ) : '';
+        $url_b = ! empty( $title ) ? $this->generate_quora_url( $post, $extracted_dir, $author_id, false, true ) : '';
+        
+        $groups = array(
+            'direct' => array(),
+            'slug_a' => array(),
+            'slug_b' => array(),
+        );
+        
         if ( ! empty( $direct_url ) && $this->validate_quora_url( $direct_url ) ) {
-            $urls[] = $direct_url;
+            $groups['direct'][] = $direct_url;
+            $groups['direct'][] = $this->append_suffix_to_url( $direct_url, '-1' );
+            $groups['direct'][] = $this->append_suffix_to_url( $direct_url, '-2' );
         }
         
-        // 2. Always generate slug-based candidates from the title as fallbacks
-        if ( ! empty( $title ) ) {
-            $url_a = $this->generate_quora_url( $post, $extracted_dir, $author_id, true, true );
-            $url_b = $this->generate_quora_url( $post, $extracted_dir, $author_id, false, true );
-            
-            if ( ! empty( $url_a ) && $this->validate_quora_url( $url_a ) && ! in_array( $url_a, $urls ) ) {
-                $urls[] = $url_a;
-            }
-            if ( ! empty( $url_b ) && $this->validate_quora_url( $url_b ) && ! in_array( $url_b, $urls ) ) {
-                $urls[] = $url_b;
-            }
+        if ( ! empty( $url_a ) && $this->validate_quora_url( $url_a ) ) {
+            $groups['slug_a'][] = $url_a;
+            $groups['slug_a'][] = $this->append_suffix_to_url( $url_a, '-1' );
+            $groups['slug_a'][] = $this->append_suffix_to_url( $url_a, '-2' );
         }
-
-        // Add suffixed versions (-1 and -2) at the end of urls as a last resort
-        $suffixed_urls = array();
-        foreach ( $urls as $url ) {
-            if ( preg_match( '#^(https?://[^/]+/)([^/]+)(/answer/[^/]+)$#i', $url, $matches ) ) {
-                $suffixed_urls[] = $matches[1] . $matches[2] . '-1' . $matches[3];
-                $suffixed_urls[] = $matches[1] . $matches[2] . '-2' . $matches[3];
-            } else {
-                $trimmed_url = rtrim( $url, '/' );
-                $suffixed_urls[] = $trimmed_url . '-1';
-                $suffixed_urls[] = $trimmed_url . '-2';
-            }
+        
+        if ( ! empty( $url_b ) && $this->validate_quora_url( $url_b ) ) {
+            $groups['slug_b'][] = $url_b;
+            $groups['slug_b'][] = $this->append_suffix_to_url( $url_b, '-1' );
+            $groups['slug_b'][] = $this->append_suffix_to_url( $url_b, '-2' );
         }
-        foreach ( $suffixed_urls as $s_url ) {
-            if ( ! in_array( $s_url, $urls ) ) {
-                $urls[] = $s_url;
+        
+        // Order groups adaptively based on the last successful method
+        $last_success_method = get_option( 'quora_importer_last_success_method', 'direct' );
+        $method_order = array( 'direct', 'slug_a', 'slug_b' );
+        if ( in_array( $last_success_method, $method_order ) ) {
+            $method_order = array_diff( $method_order, array( $last_success_method ) );
+            array_unshift( $method_order, $last_success_method );
+        }
+        
+        $urls = array();
+        foreach ( $method_order as $method ) {
+            foreach ( $groups[$method] as $url ) {
+                if ( ! in_array( $url, $urls ) ) {
+                    $urls[] = $url;
+                }
             }
         }
         
@@ -3354,6 +3389,18 @@ class Quora_Importer {
                             } else {
                                 $status = ( $status_code > 0 && $status_code !== 404 ) ? 'valid' : 'invalid';
                             }
+                            
+                            if ( $status === 'valid' ) {
+                                $slug_a = $this->quora_slugify( $clean_title, true );
+                                $slug_b = $this->quora_slugify( $clean_title, false );
+                                $success_method = 'direct';
+                                if ( ! empty( $slug_b ) && strpos( $url_to_test, $slug_b ) !== false ) {
+                                    $success_method = 'slug_b';
+                                } elseif ( ! empty( $slug_a ) && strpos( $url_to_test, $slug_a ) !== false ) {
+                                    $success_method = 'slug_a';
+                                }
+                                update_option( 'quora_importer_last_success_method', $success_method );
+                            }
                         }
                         
                         update_post_meta( $matched_post->ID, '_quora_url', $url_to_test );
@@ -3463,7 +3510,12 @@ class Quora_Importer {
             
             // Helper to add candidate permutations
             $add_slug_candidates = function( $t ) use ( &$candidates, $domain, $profile_slugs ) {
-                foreach ( array( true, false ) as $replace_apostrophes ) {
+                $last_success_method = get_option( 'quora_importer_last_success_method', 'direct' );
+                $loop_order = array( true, false );
+                if ( $last_success_method === 'slug_b' ) {
+                    $loop_order = array( false, true );
+                }
+                foreach ( $loop_order as $replace_apostrophes ) {
                     $slug = $this->quora_slugify( $t, $replace_apostrophes );
                     if ( empty( $slug ) ) {
                         continue;
@@ -3593,6 +3645,18 @@ class Quora_Importer {
                     
                     if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
                         $valid_url = $candidate_url;
+                        
+                        // Update last success method option
+                        $slug_a = $this->quora_slugify( $db_post->post_title, true );
+                        $slug_b = $this->quora_slugify( $db_post->post_title, false );
+                        $success_method = 'direct';
+                        if ( ! empty( $slug_b ) && strpos( $candidate_url, $slug_b ) !== false ) {
+                            $success_method = 'slug_b';
+                        } elseif ( ! empty( $slug_a ) && strpos( $candidate_url, $slug_a ) !== false ) {
+                            $success_method = 'slug_a';
+                        }
+                        update_option( 'quora_importer_last_success_method', $success_method );
+                        
                         break;
                     } elseif ( $status_code === 404 ) {
                         $this->log_404( $db_post->post_title, $candidate_url );
