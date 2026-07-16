@@ -1556,8 +1556,11 @@ class Quora_Importer {
      * Log 404 URL errors to a log file
      */
     private function log_404( $title, $url ) {
-        $dir = defined( 'QUORA_IMPORTER_PATH' ) ? QUORA_IMPORTER_PATH : plugin_dir_path( __DIR__ );
-        $log_file = $dir . 'quora-404.log';
+        $upload_dir = wp_upload_dir();
+        if ( ! empty( $upload_dir['error'] ) ) {
+            return;
+        }
+        $log_file = $upload_dir['basedir'] . '/quora-404.log';
         $timestamp = current_time( 'mysql' );
         $log_message = sprintf( "[%s] Title: \"%s\" | Tested URL: %s\n", $timestamp, $title, $url );
         @file_put_contents( $log_file, $log_message, FILE_APPEND );
