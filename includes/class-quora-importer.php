@@ -14,6 +14,14 @@ class Quora_Importer {
         }
         return self::$instance;
     }
+
+    public function get_last_topic_error() {
+        return $this->last_topic_error;
+    }
+
+    public function set_last_topic_error( $error ) {
+        $this->last_topic_error = $error;
+    }
     
     private function __construct() {
         add_action( 'admin_init', array( $this, 'register_wordpress_importer' ) );
@@ -28,16 +36,7 @@ class Quora_Importer {
         add_action( 'add_meta_boxes', array( $this, 'add_quora_url_meta_box' ) );
         add_action( 'save_post', array( $this, 'save_quora_url_meta_box_data' ) );
         
-        // AJAX endpoint to test Quora URL validation
-        add_action( 'wp_ajax_quora_test_url', array( $this, 'ajax_test_quora_url' ) );
-        
-        // AJAX endpoints for manual tag/comment updates from Meta Box
-        add_action( 'wp_ajax_quora_import_post_tags', array( $this, 'ajax_import_post_tags' ) );
-        add_action( 'wp_ajax_quora_update_post_comments', array( $this, 'ajax_update_post_comments' ) );
-        
-        // Deferred comments extraction hooks
-        add_action( 'template_redirect', array( $this, 'maybe_schedule_deferred_comments' ) );
-        add_action( 'quora_import_deferred_comments', array( $this, 'cron_import_comments' ) );
+
     }
     
     /**
@@ -184,41 +183,44 @@ class Quora_Importer {
                 <div class="quora-form-section">
                     <h4><?php esc_html_e( '1. Post Settings', 'quora-importer' ); ?></h4>
                     <div class="quora-form-row">
-                        <label for="quora-post-author"><?php esc_html_e( 'Author for imported posts:', 'quora-importer' ); ?></label>
-                        <select name="author_id" id="quora-post-author">
-                            <?php 
-                            $users = get_users();
-                            $current_user_id = get_current_user_id();
-                            foreach ( $users as $user ) {
-                                $nickname = get_user_meta( $user->ID, 'nickname', true );
-                                $display_text = ! empty( $nickname ) ? $nickname : $user->display_name;
-                                ?>
-                                <option value="<?php echo esc_attr( $user->ID ); ?>" <?php selected( $user->ID, $current_user_id ); ?>>
-                                    <?php echo esc_html( $display_text ); ?>
-                                </option>
-                                <?php
-                            }
-                            ?>
-                        </select>
-                    </div>
-                    <div class="quora-form-row">
                         <label for="quora-min-chars-publish"><?php esc_html_e( 'Publish if text is longer than:', 'quora-importer' ); ?></label>
                         <div>
                             <input type="number" id="quora-min-chars-publish" name="min_chars_publish" value="0" min="0" />
                             <span class="help-desc" style="display: block; margin-top: 4px;"><?php esc_html_e( 'characters (shorter published originals, or drafts, will be imported as Draft).', 'quora-importer' ); ?></span>
                         </div>
                     </div>
+                    <div class="quora-form-row">
+                        <label for="quora-post-author"><?php esc_html_e( 'Author for imported posts:', 'quora-importer' ); ?></label>
+                        <div>
+                            <select name="author_id" id="quora-post-author">
+                                <?php 
+                                $users = get_users();
+                                $current_user_id = get_current_user_id();
+                                foreach ( $users as $user ) {
+                                    $nickname = get_user_meta( $user->ID, 'nickname', true );
+                                    $display_text = ! empty( $nickname ) ? $nickname : $user->display_name;
+                                    ?>
+                                    <option value="<?php echo esc_attr( $user->ID ); ?>" <?php selected( $user->ID, $current_user_id ); ?>>
+                                        <?php echo esc_html( $display_text ); ?>
+                                    </option>
+                                    <?php
+                                }
+                                ?>
+                            </select>
+                            <span class="help-desc" style="display: block; margin-top: 4px;"><?php esc_html_e( "must match the name on Quora if the 'Link to Quora' option below is enabled", 'quora-importer' ); ?></span>
+                        </div>
+                    </div>
                     
                     <div class="quora-form-row">
                         <label for="quora-link-position"><?php esc_html_e( 'Link to Quora:', 'quora-importer' ); ?></label>
                         <select name="link_position" id="quora-link-position">
-                            <option value="none"><?php esc_html_e( 'No', 'quora-importer' ); ?></option>
-                            <option value="top" selected><?php esc_html_e( 'At the top of the post', 'quora-importer' ); ?></option>
+                            <option value="none" <?php if ( ! class_exists( 'Quora_Importer_Extended' ) ) echo 'selected="selected"'; ?>><?php esc_html_e( 'No', 'quora-importer' ); ?></option>
+                            <option value="top" <?php if ( class_exists( 'Quora_Importer_Extended' ) ) echo 'selected="selected"'; ?>><?php esc_html_e( 'At the top of the post', 'quora-importer' ); ?></option>
                             <option value="bottom"><?php esc_html_e( 'At the bottom of the post', 'quora-importer' ); ?></option>
                         </select>
                     </div>
                     
-                    <div class="quora-form-row" id="quora-link-template-row">
+                    <div class="quora-form-row" id="quora-link-template-row" <?php if ( ! class_exists( 'Quora_Importer_Extended' ) ) echo 'style="display: none;"'; ?>>
                         <label for="quora-link-template"><?php esc_html_e( 'Link Template (HTML):', 'quora-importer' ); ?></label>
                         <input type="text" id="quora-link-template" name="link_template" value='<a href="$link$" target="_blank">voir sur Quora </a >' style="width: 100%; max-width: 400px;" />
                     </div>
@@ -250,6 +252,7 @@ class Quora_Importer {
                     </div>
                 </div>
                 
+                <?php if ( class_exists( 'Quora_Importer_Extended' ) ) : ?>
                 <div class="quora-form-section">
                     <h4><?php esc_html_e( '4. Tag Settings', 'quora-importer' ); ?></h4>
                     <div class="quora-form-row checkbox-row">
@@ -260,6 +263,7 @@ class Quora_Importer {
                         </label>
                     </div>
                 </div>
+                <?php endif; ?>
                 
                 <div class="quora-form-section">
                     <h4><?php esc_html_e( '5. Wikipedia / Reference 2 Wiki', 'quora-importer' ); ?></h4>
@@ -278,6 +282,7 @@ class Quora_Importer {
                     </div>
                 </div>
 
+                <?php if ( class_exists( 'Quora_Importer_Extended' ) ) : ?>
                 <div class="quora-form-section">
                     <h4><?php esc_html_e( '6. Comment Settings', 'quora-importer' ); ?></h4>
                     <div class="quora-form-row">
@@ -292,6 +297,7 @@ class Quora_Importer {
                         <span class="help-desc"><?php esc_html_e( 'Choose when and how to import comments. Direct imports comments during the import process. Deferred schedules comment scraping asynchronously via WordPress CRON on demand when the post is first viewed on the site.', 'quora-importer' ); ?></span>
                     </div>
                 </div>
+                <?php endif; ?>
                 
                 <div class="quora-form-actions">
                     <button type="button" class="button button-secondary button-large" id="quora-cancel-to-upload"><?php esc_html_e( 'Cancel', 'quora-importer' ); ?></button>
@@ -556,10 +562,10 @@ class Quora_Importer {
         $min_chars_publish = isset( $_POST['min_chars_publish'] ) ? intval( wp_unslash( $_POST['min_chars_publish'] ) ) : 0;
         $import_images = ! empty( $_POST['import_images'] );
         $set_featured = ! empty( $_POST['set_featured'] );
-        $extract_topics = ! empty( $_POST['extract_topics'] );
+        $extract_topics = ! empty( $_POST['extract_topics'] ) && class_exists( 'Quora_Importer_Extended' );
         $r2w_support = ! empty( $_POST['r2w_support'] );
         update_option( 'quora_importer_r2w_support', $r2w_support ? '1' : '0' );
-        $import_comments = isset( $_POST['import_comments'] ) ? sanitize_text_field( wp_unslash( $_POST['import_comments'] ) ) : 'none';
+        $import_comments = class_exists( 'Quora_Importer_Extended' ) ? ( isset( $_POST['import_comments'] ) ? sanitize_text_field( wp_unslash( $_POST['import_comments'] ) ) : 'none' ) : 'none';
         $link_position = isset( $_POST['link_position'] ) ? sanitize_text_field( wp_unslash( $_POST['link_position'] ) ) : 'none';
         $link_template = isset( $_POST['link_template'] ) ? wp_kses_post( wp_unslash( $_POST['link_template'] ) ) : '';
         
@@ -716,7 +722,7 @@ class Quora_Importer {
             update_post_meta( $existing->ID, '_quora_candidate_urls', $candidate_urls );
             
             if ( $extract_topics ) {
-                if ( ! empty( $extracted_topics ) || ( ! empty( $quora_url ) && $this->test_url_http_status( $quora_url ) === 200 ) ) {
+                if ( ! empty( $extracted_topics ) || ( ! empty( $quora_url ) && Quora_Importer_Extended::test_url_status( $quora_url ) === 200 ) ) {
                     update_post_meta( $existing->ID, '_quora_url', $quora_url );
                     update_post_meta( $existing->ID, '_quora_url_status', 'valid' );
                     if ( ! empty( $extracted_topics ) ) {
@@ -731,7 +737,7 @@ class Quora_Importer {
                     update_post_meta( $existing->ID, '_quora_url_status', 'invalid' );
                     if ( ! empty( $quora_url ) ) {
                         update_post_meta( $existing->ID, '_quora_url', $quora_url );
-                        $status_code = $this->test_url_http_status( $quora_url );
+                        $status_code = Quora_Importer_Extended::test_url_status( $quora_url );
                         if ( $status_code === 404 ) {
                             $this->log_404( $title, $quora_url );
                         }
@@ -864,7 +870,7 @@ class Quora_Importer {
                 } else {
                     $initial_status = 'invalid';
                     if ( ! empty( $initial_url ) ) {
-                        $status_code = $this->test_url_http_status( $initial_url );
+                        $status_code = Quora_Importer_Extended::test_url_status( $initial_url );
                         if ( $status_code === 404 ) {
                             $this->log_404( $title, $initial_url );
                         }
@@ -883,7 +889,7 @@ class Quora_Importer {
         if ( $is_published && 'none' !== $import_comments ) {
             if ( 'direct' === $import_comments ) {
                 if ( ! empty( $quora_urls ) ) {
-                    $comments_res = $this->import_quora_comments( $post_id, $quora_urls, $post_date );
+                    $comments_res = Quora_Importer_Extended::import_comments( $post_id, $quora_urls, $post_date );
                     if ( $comments_res['success'] ) {
                         $comments_imported = $comments_res['count'];
                     } else {
@@ -1151,7 +1157,7 @@ class Quora_Importer {
     /**
      * Validates a URL, supporting international/accented characters.
      */
-    private function validate_quora_url( $url ) {
+    public function validate_quora_url( $url ) {
         if ( empty( $url ) ) {
             return false;
         }
@@ -1511,7 +1517,6 @@ class Quora_Importer {
                 $lang = $url_matches[1];
                 $slug = rawurldecode( $url_matches[2] );
                 $clean_text = trim( wp_strip_all_tags( $link_text ) );
-                
                 return '[[' . $lang . '|' . $slug . '|' . $clean_text . ']]';
             }
 
@@ -1520,9 +1525,9 @@ class Quora_Importer {
     }
 
     /**
-     * Get python executable path
+     * Locate the python executable on the host system.
      */
-    private function get_python_executable() {
+    public function get_python_executable() {
         $python_executable = 'python3';
         $possible_paths = array(
             '/usr/bin/python3',
@@ -1539,14 +1544,9 @@ class Quora_Importer {
         return $python_executable;
     }
 
-
-
-    /**
-     * Helper to append a suffix to a Quora URL (handling /answer/ structure safely)
-     */
     private function append_suffix_to_url( $url, $suffix ) {
-        if ( preg_match( '#^(https?://[^/]+/)([^/]+)(/answer/[^/]+)$#i', $url, $matches ) ) {
-            return $matches[1] . $matches[2] . $suffix . $matches[3];
+        if ( substr( $url, -1 ) === '/' ) {
+            return $url . trim( $suffix, '/' );
         } else {
             return rtrim( $url, '/' ) . $suffix;
         }
@@ -1555,7 +1555,7 @@ class Quora_Importer {
     /**
      * Log 404 URL errors to a log file
      */
-    private function log_404( $title, $url ) {
+    public function log_404( $title, $url ) {
         $upload_dir = wp_upload_dir();
         if ( ! empty( $upload_dir['error'] ) ) {
             return;
@@ -1566,18 +1566,7 @@ class Quora_Importer {
         @file_put_contents( $log_file, $log_message, FILE_APPEND );
     }
 
-    /**
-     * Get HTTP status code of a URL using a lightweight python script
-     */
-    private function test_url_http_status( $url ) {
-        $python_executable = $this->get_python_executable();
-        $py_cmd = 'import sys, cloudscraper; s = cloudscraper.create_scraper(); r = s.get(sys.argv[1], timeout=5); print(r.status_code)';
-        $cmd = escapeshellcmd( $python_executable ) . ' -c ' . escapeshellarg( $py_cmd ) . ' ' . escapeshellarg( $url );
-        $output = array();
-        $retval = 0;
-        exec( $cmd, $output, $retval );
-        return isset( $output[0] ) ? intval( trim( $output[0] ) ) : 0;
-    }
+
 
     /**
      * Resolves the best Quora URL for a post using candidate generation.
@@ -1587,9 +1576,16 @@ class Quora_Importer {
         $quora_url = '';
         $extracted_topics = array();
 
+        if ( ! class_exists( 'Quora_Importer_Extended' ) ) {
+            if ( ! empty( $candidate_urls ) ) {
+                $quora_url = $candidate_urls[0];
+            }
+            return $quora_url;
+        }
+
         if ( $extract_topics ) {
             foreach ( $candidate_urls as $candidate ) {
-                $topics = $this->extract_quora_topics( $candidate );
+                $topics = Quora_Importer_Extended::extract_topics( $candidate );
                 if ( ! empty( $topics ) ) {
                     $extracted_topics = $topics;
                     $quora_url = $candidate;
@@ -1598,7 +1594,7 @@ class Quora_Importer {
             }
         } else {
             foreach ( $candidate_urls as $candidate ) {
-                $status_code = $this->test_url_http_status( $candidate );
+                $status_code = Quora_Importer_Extended::test_url_status( $candidate );
                 if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
                     $quora_url = $candidate;
                     break;
@@ -2017,7 +2013,7 @@ class Quora_Importer {
     /**
      * Decode a JSON string from a shell output containing possible prepended/appended warnings.
      */
-    private function decode_shell_json( $output_array ) {
+    public function decode_shell_json( $output_array ) {
         $output_str = implode( '', $output_array );
         $start_pos = strpos( $output_str, '{' );
         $end_pos = strrpos( $output_str, '}' );
@@ -2280,238 +2276,9 @@ class Quora_Importer {
     }
 
     /**
-     * Visit Quora URL and extract topic labels
-     *
-     * @param string $url The Quora URL.
-     * @return array Array of topic names.
-     */
-    private function extract_quora_topics( $url ) {
-        $this->last_topic_error = '';
-        if ( empty( $url ) ) {
-            return array();
-        }
-
-        // Try running the Python scraper helper which bypasses Cloudflare
-        $python_script = plugin_dir_path( __FILE__ ) . 'scrape-topics.py';
-        if ( file_exists( $python_script ) ) {
-            $python_executable = 'python3';
-            $possible_paths = array(
-                '/usr/bin/python3',
-                '/usr/local/bin/python3',
-                '/bin/python3',
-                '/usr/bin/python',
-            );
-            foreach ( $possible_paths as $path ) {
-                if ( @is_executable( $path ) ) {
-                    $python_executable = $path;
-                    break;
-                }
-            }
-            $cmd = escapeshellcmd( $python_executable ) . ' ' . escapeshellarg( $python_script ) . ' ' . escapeshellarg( $url );
-            $output = array();
-            $retval = null;
-            exec( $cmd, $output, $retval );
-            if ( 0 === $retval && ! empty( $output ) ) {
-                $response_data = $this->decode_shell_json( $output );
-                if ( is_array( $response_data ) && isset( $response_data['success'] ) ) {
-                    if ( $response_data['success'] ) {
-                        return $response_data['topics'];
-                    } else {
-                        $this->last_topic_error = $response_data['error'];
-                        return array();
-                    }
-                } else {
-                    $topics = $this->decode_shell_json( $output );
-                    if ( is_array( $topics ) && ! empty( $topics ) ) {
-                        return $topics;
-                    }
-                }
-            } else {
-                // translators: %d: exit code.
-                $this->last_topic_error = sprintf( __( 'Python scraper failed with exit code %d', 'quora-importer' ), $retval );
-            }
-        }
-
-        // Fallback: Set realistic User-Agent and headers
-        $args = array(
-            'timeout'    => 10,
-            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'headers'    => array(
-                'Accept-Language' => 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Accept'          => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            ),
-        );
-
-        $response = wp_safe_remote_get( $url, $args );
-
-        if ( is_wp_error( $response ) ) {
-            $this->last_topic_error = $response->get_error_message();
-            return array();
-        }
-
-        $http_code = wp_remote_retrieve_response_code( $response );
-        if ( 200 !== $http_code ) {
-            // translators: %d: HTTP code.
-            $this->last_topic_error = sprintf( __( 'HTTP error %d', 'quora-importer' ), $http_code );
-            return array();
-        }
-
-        $html = wp_remote_retrieve_body( $response );
-        if ( empty( $html ) ) {
-            $this->last_topic_error = __( 'Empty response body', 'quora-importer' );
-            return array();
-        }
-
-        $topics = array();
-
-        // 1. Try matching JSON format
-        // E.g., \"url\":\"https://fr.quora.com/topic/Sociologie\",\"name\":\"Sociologie\"
-        if ( preg_match_all( '/\\\\*"url\\\\*":\\\\*"(https?:\\/\\/[^\\"/]+\\/topic\\/(?:[^\\"\\\]|\\\\.)*?)\\\\*",\\\\*"name\\\\*":\\\\*"((?:[^\\"\\\]|\\\\.)*?)\\\\*"/is', $html, $matches_json ) ) {
-            if ( ! empty( $matches_json[2] ) ) {
-                foreach ( $matches_json[2] as $label ) {
-                    $label = str_replace( array( '\\"', '\\\\' ), array( '"', '\\' ), $label );
-                    // Decode unicode escapes like \u00e9 or \\u00e9
-                    $label = preg_replace_callback( '/\\\\u([0-9a-fA-F]{4})/', function( $match ) {
-                        return mb_convert_encoding( pack( 'H*', $match[1] ), 'UTF-8', 'UCS-2BE' );
-                    }, $label );
-                    $label = trim( wp_strip_all_tags( $label ) );
-                    $label = html_entity_decode( $label, ENT_QUOTES, 'UTF-8' );
-                    if ( ! empty( $label ) && ! in_array( $label, $topics, true ) ) {
-                        if ( strlen( $label ) < 50 ) {
-                            $topics[] = $label;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Try matching standard HTML link format
-        if ( empty( $topics ) && preg_match_all( '/href=["\'][^"\']*\/topic\/([^"\'\/]+)["\'][^>]*>(.*?)<\/a>/is', $html, $matches_html ) ) {
-            if ( ! empty( $matches_html[2] ) ) {
-                foreach ( $matches_html[2] as $label ) {
-                    $label = trim( wp_strip_all_tags( $label ) );
-                    $label = html_entity_decode( $label, ENT_QUOTES, 'UTF-8' );
-                    if ( ! empty( $label ) && ! in_array( $label, $topics, true ) ) {
-                        if ( strlen( $label ) < 50 ) {
-                            $topics[] = $label;
-                        }
-                    }
-                }
-            }
-        }
-
-        return $topics;
-    }
-
-    /**
-     * Scrape and import comments for a specific post
-     */
-    private function import_quora_comments( $post_id, $quora_url, $post_date ) {
-        $python_script = plugin_dir_path( __FILE__ ) . 'scrape_comments.py';
-        if ( ! file_exists( $python_script ) ) {
-            return array( 'success' => false, 'error' => __( 'Comments scraper script not found.', 'quora-importer' ) );
-        }
-        
-        $python_executable = 'python3';
-        $possible_paths = array(
-            '/usr/bin/python3',
-            '/usr/local/bin/python3',
-            '/bin/python3',
-            '/usr/bin/python',
-        );
-        foreach ( $possible_paths as $path ) {
-            if ( @is_executable( $path ) ) {
-                $python_executable = $path;
-                break;
-            }
-        }
-        
-        $url_args = '';
-        if ( is_array( $quora_url ) ) {
-            foreach ( $quora_url as $u ) {
-                $url_args .= ' ' . escapeshellarg( $u );
-            }
-        } else {
-            $url_args = ' ' . escapeshellarg( $quora_url );
-        }
-        
-        $cmd = escapeshellcmd( $python_executable ) . ' ' . escapeshellarg( $python_script ) . $url_args;
-        $output = array();
-        $retval = null;
-        exec( $cmd, $output, $retval );
-        
-        if ( 0 !== $retval || empty( $output ) ) {
-            return array( 'success' => false, 'error' => __( 'Failed to execute comments scraper.', 'quora-importer' ) );
-        }
-        
-        $response_data = $this->decode_shell_json( $output );
-        if ( ! is_array( $response_data ) || ! isset( $response_data['success'] ) ) {
-            return array( 'success' => false, 'error' => __( 'Invalid scraper response format.', 'quora-importer' ) );
-        }
-        
-        if ( ! $response_data['success'] ) {
-            if ( false !== strpos( $response_data['error'], 'could not be loaded' ) ) {
-                update_post_meta( $post_id, '_quora_url_status', 'invalid' );
-            }
-            return array( 'success' => false, 'error' => $response_data['error'] );
-        }
-        
-        update_post_meta( $post_id, '_quora_url_status', 'valid' );
-        
-        if ( ! empty( $response_data['resolved_url'] ) ) {
-            $old_url = get_post_meta( $post_id, '_quora_url', true );
-            $resolved_url = $response_data['resolved_url'];
-            
-            if ( $old_url !== $resolved_url ) {
-                update_post_meta( $post_id, '_quora_url', $resolved_url );
-                
-                if ( ! empty( $old_url ) ) {
-                    $post_obj = get_post( $post_id );
-                    if ( $post_obj ) {
-                        $new_content = str_replace( 
-                            array(
-                                $old_url, 
-                                esc_url( $old_url ), 
-                                rawurlencode( $old_url ),
-                                esc_attr( $old_url ),
-                                rawurldecode( $old_url )
-                            ), 
-                            $resolved_url, 
-                            $post_obj->post_content 
-                        );
-                        if ( $new_content !== $post_obj->post_content ) {
-                            if ( has_action( 'save_post', array( $this, 'save_quora_url_meta_box_data' ) ) ) {
-                                remove_action( 'save_post', array( $this, 'save_quora_url_meta_box_data' ) );
-                                wp_update_post( array(
-                                    'ID'           => $post_id,
-                                    'post_content' => $new_content
-                                ) );
-                                add_action( 'save_post', array( $this, 'save_quora_url_meta_box_data' ) );
-                            } else {
-                                wp_update_post( array(
-                                    'ID'           => $post_id,
-                                    'post_content' => $new_content
-                                ) );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        $comments = isset( $response_data['comments'] ) ? $response_data['comments'] : array();
-        if ( empty( $comments ) ) {
-            return array( 'success' => true, 'count' => 0 );
-        }
-        
-        $count = $this->import_quora_comments_to_post( $post_id, $comments, $post_date );
-        return array( 'success' => true, 'count' => $count );
-    }
-
-    /**
      * Recursive comment importer supporting hierarchy mapping
      */
-    private function import_quora_comments_to_post( $post_id, $comments, $post_date ) {
+    public function import_quora_comments_to_post( $post_id, $comments, $post_date ) {
         $id_map = array();
         $imported_comments_count = 0;
         
@@ -2626,61 +2393,7 @@ class Quora_Importer {
         return gmdate( 'Y-m-d H:i:s', $post_time + 86400 );
     }
 
-    /**
-     * Schedules the deferred comments scraping when a single post page is visited.
-     */
-    public function maybe_schedule_deferred_comments() {
-        if ( ! is_single() ) {
-            return;
-        }
-        
-        $post_id = get_the_ID();
-        $imported = get_post_meta( $post_id, '_quora_comments_imported', true );
-        
-        if ( '0' === $imported ) {
-            if ( ! wp_next_scheduled( 'quora_import_deferred_comments', array( $post_id ) ) ) {
-                wp_schedule_single_event( time(), 'quora_import_deferred_comments', array( $post_id ) );
-            }
-        }
-    }
 
-    /**
-     * Cron action handler to fetch comments for a post in the background.
-     */
-    public function cron_import_comments( $post_id ) {
-        $status = get_post_meta( $post_id, '_quora_comments_imported', true );
-        if ( '0' !== $status ) {
-            return; // Already imported or currently scraping
-        }
-        
-        // Lock the process
-        update_post_meta( $post_id, '_quora_comments_imported', 'scraping' );
-        
-        $quora_urls = get_post_meta( $post_id, '_quora_candidate_urls', true );
-        if ( empty( $quora_urls ) ) {
-            $quora_url = get_post_meta( $post_id, '_quora_url', true );
-            if ( ! empty( $quora_url ) ) {
-                $quora_urls = array( $quora_url );
-            }
-        }
-        
-        if ( empty( $quora_urls ) ) {
-            update_post_meta( $post_id, '_quora_comments_imported', 'failed_no_url' );
-            return;
-        }
-        
-        $post = get_post( $post_id );
-        $post_date = $post ? $post->post_date : current_time( 'mysql' );
-        
-        $res = $this->import_quora_comments( $post_id, $quora_urls, $post_date );
-        
-        if ( $res['success'] ) {
-            update_post_meta( $post_id, '_quora_comments_imported', '1' );
-        } else {
-            // Revert status to 0 so it can be retried on subsequent visits
-            update_post_meta( $post_id, '_quora_comments_imported', '0' );
-        }
-    }
 
     /**
      * Add Custom Meta Box for editing and validating Quora URL
@@ -2726,6 +2439,7 @@ class Quora_Importer {
                 <input type="url" id="quora_url_input" name="quora_url" value="<?php echo esc_attr( $quora_url ); ?>" style="width: 100%; box-sizing: border-box;" placeholder="https://fr.quora.com/... /answer/..." />
             </p>
             
+            <?php if ( class_exists( 'Quora_Importer_Extended' ) ) : ?>
             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 15px; margin-bottom: 10px;">
                 <div style="display: flex; align-items: center;">
                     <span id="quora-status-dot" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: <?php echo esc_attr( $badge_color ); ?>; margin-right: 8px; transition: background-color 0.3s ease;"></span>
@@ -2917,6 +2631,7 @@ class Quora_Importer {
                     });
                 });
             </script>
+            <?php endif; ?>
         </div>
         <?php
     }
@@ -2984,160 +2699,6 @@ class Quora_Importer {
         }
     }
 
-    /**
-     * AJAX endpoint to test Quora URL validation via cloudscraper
-     */
-    public function ajax_test_quora_url() {
-        check_ajax_referer( 'quora-test-url-nonce', 'security' );
-        
-        if ( ! current_user_can( 'edit_posts' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied.', 'quora-importer' ) ) );
-        }
-        
-        $url = isset( $_POST['url'] ) ? sanitize_text_field( wp_unslash( $_POST['url'] ) ) : '';
-        $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
-        
-        if ( empty( $url ) || ! $this->validate_quora_url( $url ) ) {
-            wp_send_json_error( array( 'message' => __( 'Veuillez saisir une URL valide.', 'quora-importer' ) ) );
-        }
-        
-        $python_executable = 'python3';
-        $possible_paths = array(
-            '/usr/bin/python3',
-            '/usr/local/bin/python3',
-            '/bin/python3',
-            '/usr/bin/python',
-        );
-        foreach ( $possible_paths as $path ) {
-            if ( @is_executable( $path ) ) {
-                $python_executable = $path;
-                break;
-            }
-        }
-        
-        $py_cmd = 'import sys, cloudscraper; s = cloudscraper.create_scraper(); r = s.get(sys.argv[1], timeout=5); print(r.status_code)';
-        $cmd = escapeshellcmd( $python_executable ) . ' -c ' . escapeshellarg( $py_cmd ) . ' ' . escapeshellarg( $url );
-        
-        $output = array();
-        $return_var = 0;
-        exec( $cmd, $output, $return_var );
-        
-        $status_code = isset( $output[0] ) ? intval( trim( $output[0] ) ) : 0;
-        
-        $status = 'untested';
-        if ( $status_code === 200 ) {
-            $status = 'valid';
-        } elseif ( $status_code === 404 ) {
-            $status = 'invalid';
-            $post = get_post( $post_id );
-            $title = $post ? $post->post_title : '';
-            $this->log_404( $title, $url );
-        } else {
-            $status = ( $status_code > 0 && $status_code !== 404 ) ? 'valid' : 'invalid';
-        }
-        
-        if ( $post_id > 0 ) {
-            update_post_meta( $post_id, '_quora_url_status', $status );
-            if ( $status === 'valid' ) {
-                update_post_meta( $post_id, '_quora_url', $url );
-            }
-        }
-        
-        wp_send_json_success( array(
-            'status'      => $status,
-            'status_code' => $status_code,
-            'message'     => $status === 'valid' ? __( 'URL Valide', 'quora-importer' ) : __( 'URL Invalide (Page non trouvée)', 'quora-importer' )
-        ) );
-    }
-
-    /**
-     * AJAX action to import post tags manually from Meta Box
-     */
-    public function ajax_import_post_tags() {
-        check_ajax_referer( 'quora-import-tags-nonce', 'security' );
-        
-        if ( ! current_user_can( 'edit_posts' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied.', 'quora-importer' ) ) );
-        }
-        
-        $url = isset( $_POST['url'] ) ? sanitize_text_field( wp_unslash( $_POST['url'] ) ) : '';
-        $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
-        
-        if ( empty( $url ) || ! $this->validate_quora_url( $url ) ) {
-            wp_send_json_error( array( 'message' => __( 'Veuillez saisir une URL valide.', 'quora-importer' ) ) );
-        }
-        
-        $extracted_topics = $this->extract_quora_topics( $url );
-        
-        if ( ! empty( $extracted_topics ) ) {
-            if ( $post_id > 0 ) {
-                update_post_meta( $post_id, '_quora_url', $url );
-                update_post_meta( $post_id, '_quora_url_status', 'valid' );
-                
-                $current_tags = wp_get_post_tags( $post_id, array( 'fields' => 'names' ) );
-                if ( is_wp_error( $current_tags ) ) {
-                    $current_tags = array();
-                }
-                $new_tags = array_unique( array_merge( $current_tags, $extracted_topics ) );
-                wp_set_post_tags( $post_id, $new_tags, false );
-            }
-            
-            wp_send_json_success( array(
-                // translators: %d: count of tags.
-                'message' => sprintf( _n( '%d étiquette importée avec succès.', '%d étiquettes importées avec succès.', count( $extracted_topics ), 'quora-importer' ), count( $extracted_topics ) )
-            ) );
-        } else {
-            if ( $post_id > 0 ) {
-                update_post_meta( $post_id, '_quora_url_status', 'invalid' );
-            }
-            $error_msg = ! empty( $this->last_topic_error ) ? $this->last_topic_error : __( 'Aucune étiquette trouvée ou échec de l\'extraction.', 'quora-importer' );
-            wp_send_json_error( array(
-                // translators: %s: error message.
-                'message' => sprintf( __( 'Échec de l\'importation : %s', 'quora-importer' ), $error_msg )
-            ) );
-        }
-    }
-
-    /**
-     * AJAX action to update post comments manually from Meta Box
-     */
-    public function ajax_update_post_comments() {
-        check_ajax_referer( 'quora-update-comments-nonce', 'security' );
-        
-        if ( ! current_user_can( 'edit_posts' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied.', 'quora-importer' ) ) );
-        }
-        
-        $url = isset( $_POST['url'] ) ? sanitize_text_field( wp_unslash( $_POST['url'] ) ) : '';
-        $post_id = isset( $_POST['post_id'] ) ? intval( $_POST['post_id'] ) : 0;
-        
-        if ( empty( $url ) || ! $this->validate_quora_url( $url ) ) {
-            wp_send_json_error( array( 'message' => __( 'Veuillez saisir une URL valide.', 'quora-importer' ) ) );
-        }
-        
-        $post = get_post( $post_id );
-        $post_date = $post ? $post->post_date : current_time( 'mysql' );
-        
-        // Force the comments import status to 0 to enable re-import/update
-        update_post_meta( $post_id, '_quora_comments_imported', '0' );
-        
-        $comments_res = $this->import_quora_comments( $post_id, array( $url ), $post_date );
-        
-        if ( $comments_res['success'] ) {
-            update_post_meta( $post_id, '_quora_comments_imported', '1' );
-            wp_send_json_success( array(
-                // translators: %d: count of comments.
-                'message' => sprintf( _n( '%d commentaire importé ou mis à jour.', '%d commentaires importés ou mis à jour.', $comments_res['count'], 'quora-importer' ), $comments_res['count'] )
-            ) );
-        } else {
-            // Revert status to 0 so it can be retried
-            update_post_meta( $post_id, '_quora_comments_imported', '0' );
-            wp_send_json_error( array(
-                // translators: %s: error message.
-                'message' => sprintf( __( 'Échec de la mise à jour : %s', 'quora-importer' ), $comments_res['error'] )
-            ) );
-        }
-    }
 
     /**
      * Log messages to CLI/console, properly escaping output.
@@ -3222,14 +2783,11 @@ class Quora_Importer {
         $this->cli_log( "Using Python executable: $python_executable\n" );
 
         // Helper to test URL status code
-        $test_url_status = function( $url ) use ( $python_executable ) {
-            $py_cmd = 'import sys, cloudscraper; s = cloudscraper.create_scraper(); r = s.get(sys.argv[1], timeout=5); print(r.status_code)';
-            $cmd = escapeshellcmd( $python_executable ) . ' -c ' . escapeshellarg( $py_cmd ) . ' ' . escapeshellarg( $url );
-            $output = array();
-            $return_var = 0;
-            exec( $cmd, $output, $return_var );
-            $status_code = isset( $output[0] ) ? intval( trim( $output[0] ) ) : 0;
-            return $status_code;
+        $test_url_status = function( $url ) {
+            if ( class_exists( 'Quora_Importer_Extended' ) ) {
+                return Quora_Importer_Extended::test_url_status( $url );
+            }
+            return 0;
         };
 
         // Process each html file
@@ -3378,7 +2936,7 @@ class Quora_Importer {
                         if ( $is_valid_dict ) {
                             $status = 'valid';
                             $this->cli_log( "  Dictionary validation: SUCCESS ($url_to_test)\n" );
-                        } else {
+                        } elseif ( class_exists( 'Quora_Importer_Extended' ) ) {
                             $this->cli_log( "  Testing URL via scraper: $url_to_test\n" );
                             $status_code = $test_url_status( $url_to_test );
                             $this->cli_log( "  Status Code: $status_code\n" );
@@ -3404,6 +2962,8 @@ class Quora_Importer {
                                 }
                                 update_option( 'quora_importer_last_success_method', $success_method );
                             }
+                        } else {
+                            $status = 'untested';
                         }
                         
                         update_post_meta( $matched_post->ID, '_quora_url', $url_to_test );
@@ -3640,7 +3200,7 @@ class Quora_Importer {
                 }
             }
             
-            if ( ! $valid_url ) {
+            if ( ! $valid_url && class_exists( 'Quora_Importer_Extended' ) ) {
                 foreach ( $candidates as $candidate_url ) {
                     $this->cli_log( "  Testing direct candidate: $candidate_url\n" );
                     $status_code = $test_url_status( $candidate_url );

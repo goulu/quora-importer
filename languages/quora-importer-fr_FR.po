@@ -685,3 +685,7 @@ msgstr "Échec de la mise à jour : %s"
 #~ msgstr ""
 #~ "Article importé avec succès (ID : %1$d, images : %2$d). Attention : "
 #~ "l'extraction des étiquettes a échoué (%3$s)."
+
+#: includes/class-quora-importer.php:208
+msgid "must match the name on Quora if the 'Link to Quora' option below is enabled"
+msgstr "doit correspondre au nom sur Quora si l'option \"Lien vers Quora\" ci-dessous est activée"

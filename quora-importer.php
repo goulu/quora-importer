@@ -3,7 +3,7 @@
 Plugin Name: Quora Importer
 Plugin URI: https://github.com/goulu/quora-importer
 Description: Import your Quora blog directly into WordPress from an export ZIP archive or an index.html file.
-Version: 1.3.1
+Version: 1.4.0
 Author: Philippe Guglielmetti & Antigravity
 Author URI: https://www.drgoulu.com
 License: GPL2
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants
-define( 'QUORA_IMPORTER_VERSION', '1.3.1' );
+define( 'QUORA_IMPORTER_VERSION', '1.4.0' );
 define( 'QUORA_IMPORTER_PATH', plugin_dir_path( __FILE__ ) );
 define( 'QUORA_IMPORTER_URL', plugin_dir_url( __FILE__ ) );
 
@@ -29,6 +29,12 @@ add_action( 'init', 'quora_importer_load_textdomain' );
 
 // Load the main importer class
 require_once QUORA_IMPORTER_PATH . 'includes/class-quora-importer.php';
+
+// Load extended features if present
+if ( file_exists( QUORA_IMPORTER_PATH . 'extended/class-quora-importer-extended.php' ) ) {
+    require_once QUORA_IMPORTER_PATH . 'extended/class-quora-importer-extended.php';
+    Quora_Importer_Extended::init();
+}
 
 // Initialize the plugin
 add_action( 'plugins_loaded', array( 'Quora_Importer', 'get_instance' ) );
