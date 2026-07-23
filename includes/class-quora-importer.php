@@ -265,8 +265,21 @@ class Quora_Importer {
                 </div>
                 <?php endif; ?>
                 
+                <?php if ( class_exists( 'Quora_Importer_Extended' ) ) : ?>
                 <div class="quora-form-section">
-                    <h4><?php esc_html_e( '5. Wikipedia / Reference 2 Wiki', 'quora-importer' ); ?></h4>
+                    <h4><?php esc_html_e( '5. Comment Settings', 'quora-importer' ); ?></h4>
+                    <div class="quora-form-row checkbox-row">
+                        <input type="checkbox" name="import_comments" id="quora-import-comments" value="direct" />
+                        <label for="quora-import-comments">
+                            <strong><?php esc_html_e( 'Import comments from Quora', 'quora-importer' ); ?></strong>
+                            <span class="help-desc"><?php esc_html_e( 'Automatically scrape and import comments associated with your Quora posts.', 'quora-importer' ); ?></span>
+                        </label>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <div class="quora-form-section">
+                    <h4><?php esc_html_e( '6. Wikipedia / Reference 2 Wiki', 'quora-importer' ); ?></h4>
                     <div class="quora-form-row checkbox-row">
                         <?php
                         if ( ! function_exists( 'is_plugin_active' ) ) {
@@ -281,23 +294,6 @@ class Quora_Importer {
                         </label>
                     </div>
                 </div>
-
-                <?php if ( class_exists( 'Quora_Importer_Extended' ) ) : ?>
-                <div class="quora-form-section">
-                    <h4><?php esc_html_e( '6. Comment Settings', 'quora-importer' ); ?></h4>
-                    <div class="quora-form-row">
-                        <label for="quora-import-comments">
-                            <strong><?php esc_html_e( 'Import comments from Quora', 'quora-importer' ); ?></strong>
-                        </label>
-                        <select name="import_comments" id="quora-import-comments" style="display: block; margin-top: 5px; min-width: 250px;">
-                            <option value="none"><?php esc_html_e( "No import (Pas d'importation)", 'quora-importer' ); ?></option>
-                            <option value="direct"><?php esc_html_e( 'Direct import (Importation directe)', 'quora-importer' ); ?></option>
-                            <option value="deferred" selected="selected"><?php esc_html_e( 'Deferred import (Importation différée)', 'quora-importer' ); ?></option>
-                        </select>
-                        <span class="help-desc"><?php esc_html_e( 'Choose when and how to import comments. Direct imports comments during the import process. Deferred schedules comment scraping asynchronously via WordPress CRON on demand when the post is first viewed on the site.', 'quora-importer' ); ?></span>
-                    </div>
-                </div>
-                <?php endif; ?>
                 
                 <div class="quora-form-actions">
                     <button type="button" class="button button-secondary button-large" id="quora-cancel-to-upload"><?php esc_html_e( 'Cancel', 'quora-importer' ); ?></button>
@@ -1583,18 +1579,44 @@ class Quora_Importer {
             return $quora_url;
         }
 
+        $this->last_topic_error = '';
+
         if ( $extract_topics ) {
             foreach ( $candidate_urls as $candidate ) {
-                $topics = Quora_Importer_Extended::extract_topics( $candidate );
-                if ( ! empty( $topics ) ) {
-                    $extracted_topics = $topics;
-                    $quora_url = $candidate;
-                    break;
+                $status_code = Quora_Importer_Extended::test_url_status( $candidate );
+                
+                $upload_dir = wp_upload_dir();
+                $log_file = $upload_dir['basedir'] . '/quora-import.log';
+                $timestamp = date( 'Y-m-d H:i:s' );
+                $log_message = sprintf( "[%s] Testing URL: %s | Status: %d\n", $timestamp, $candidate, $status_code );
+                @file_put_contents( $log_file, $log_message, FILE_APPEND );
+                
+                if ( 200 === $status_code ) {
+                    $log_message_valid = sprintf( "[%s] VALID URL FOUND (200 OK): %s. Starting topic extraction...\n", $timestamp, $candidate );
+                    @file_put_contents( $log_file, $log_message_valid, FILE_APPEND );
+                    
+                    $topics = Quora_Importer_Extended::extract_topics( $candidate );
+                    if ( ! empty( $topics ) ) {
+                        $extracted_topics = $topics;
+                        $quora_url = $candidate;
+                        $this->last_topic_error = '';
+                        break;
+                    } else {
+                        $log_message_fail = sprintf( "[%s] Topic extraction returned empty for URL: %s\n", $timestamp, $candidate );
+                        @file_put_contents( $log_file, $log_message_fail, FILE_APPEND );
+                    }
                 }
             }
         } else {
             foreach ( $candidate_urls as $candidate ) {
                 $status_code = Quora_Importer_Extended::test_url_status( $candidate );
+                
+                $upload_dir = wp_upload_dir();
+                $log_file = $upload_dir['basedir'] . '/quora-import.log';
+                $timestamp = date( 'Y-m-d H:i:s' );
+                $log_message = sprintf( "[%s] Testing URL (no topics): %s | Status: %d\n", $timestamp, $candidate, $status_code );
+                @file_put_contents( $log_file, $log_message, FILE_APPEND );
+                
                 if ( $status_code === 200 || ( $status_code > 0 && $status_code !== 404 ) ) {
                     $quora_url = $candidate;
                     break;

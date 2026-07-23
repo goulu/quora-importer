@@ -11,9 +11,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Remove extended folder and GitHub readme
+    - name: Remove extended files and GitHub readme
       run: |
         rm -rf extended
+        rm -f includes/extended.php
         rm -f readme.md
 
     - name: WordPress Plugin Deploy

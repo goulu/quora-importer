@@ -245,7 +245,7 @@ jQuery(document).ready(function($) {
         setFeatured = $('#quora-set-featured').is(':checked') ? 1 : 0;
         extractTopics = $('#quora-extract-topics').is(':checked') ? 1 : 0;
         r2wSupport = $('#quora-r2w-support').is(':checked') ? 1 : 0;
-        importComments = $('#quora-import-comments').val();
+        importComments = $('#quora-import-comments').is(':checked') ? 'direct' : 'none';
         
         enabledTypes = [];
         $('input[name="enabled_types[]"]:checked').each(function() {

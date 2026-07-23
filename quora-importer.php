@@ -31,8 +31,8 @@ add_action( 'init', 'quora_importer_load_textdomain' );
 require_once QUORA_IMPORTER_PATH . 'includes/class-quora-importer.php';
 
 // Load extended features if present
-if ( file_exists( QUORA_IMPORTER_PATH . 'extended/class-quora-importer-extended.php' ) ) {
-    require_once QUORA_IMPORTER_PATH . 'extended/class-quora-importer-extended.php';
+if ( file_exists( QUORA_IMPORTER_PATH . 'includes/extended.php' ) ) {
+    require_once QUORA_IMPORTER_PATH . 'includes/extended.php';
     Quora_Importer_Extended::init();
 }
 
